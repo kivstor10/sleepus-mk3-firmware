@@ -31,4 +31,4 @@ Publishing the release triggers the workflow. It verifies that exactly one `.bin
 
 Check the **Publish firmware release** workflow in the private repository. The updater should then show the new version at:
 
-https://kivstor10.github.io/sleepus-mk3/
+https://sleepus.dev/
