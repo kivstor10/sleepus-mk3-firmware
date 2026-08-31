@@ -1,0 +1,81 @@
+name: Publish firmware release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release tag
+        id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ "$EVENT_NAME" == "release" ]]; then
+            echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download release binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          mkdir artifact
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.bin' --dir artifact
+          mapfile -t files < <(find artifact -maxdepth 1 -type f -name '*.bin')
+          if [[ ${#files[@]} -ne 1 ]]; then
+            echo "Expected exactly one .bin release asset, found ${#files[@]}." >&2
+            exit 1
+          fi
+          cp "${files[0]}" artifact/Sleepus-MK3.bin
+
+      - name: Build public manifest
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          size=$(stat -c%s artifact/Sleepus-MK3.bin)
+          sha256=$(sha256sum artifact/Sleepus-MK3.bin | cut -d' ' -f1)
+          jq -n \
+            --arg version "$TAG" \
+            --arg file "Sleepus-MK3.bin" \
+            --arg sha256 "$sha256" \
+            --arg publishedAt "$(date -u +%FT%TZ)" \
+            --argjson size "$size" \
+            '{version:$version,file:$file,size:$size,sha256:$sha256,publishedAt:$publishedAt}' \
+            > artifact/manifest.json
+
+      - name: Check out public updater
+        uses: actions/checkout@v4
+        with:
+          repository: kivstor10/sleepus-mk3-usb-passthrough
+          ssh-key: ${{ secrets.UPDATER_DEPLOY_KEY }}
+          path: updater
+
+      - name: Publish approved firmware
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          mkdir -p updater/firmware
+          cp artifact/Sleepus-MK3.bin artifact/manifest.json updater/firmware/
+          cd updater
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add firmware
+          git diff --cached --quiet && exit 0
+          git commit -m "Publish firmware $TAG"
+          git push

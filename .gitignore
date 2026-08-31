@@ -1,0 +1,12 @@
+# AT32IDE generated build output
+project/AT32_IDE/Debug/
+
+# Captures and local diagnostics
+*.pcap
+*.pcapng
+Dynamic Auth Testing/
+
+# Editor and OS files
+.vscode/
+.DS_Store
+Thumbs.db
