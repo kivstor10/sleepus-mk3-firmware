@@ -42,7 +42,9 @@ jobs:
             echo "Expected exactly one .bin release asset, found ${#files[@]}." >&2
             exit 1
           fi
-          cp "${files[0]}" artifact/Sleepus-MK3.bin
+          if [[ "${files[0]}" != "artifact/Sleepus-MK3.bin" ]]; then
+            cp "${files[0]}" artifact/Sleepus-MK3.bin
+          fi
 
       - name: Build public manifest
         env:
