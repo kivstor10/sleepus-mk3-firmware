@@ -64,7 +64,7 @@ jobs:
       - name: Check out public updater
         uses: actions/checkout@v4
         with:
-          repository: kivstor10/sleepus-mk3-usb-passthrough
+          repository: kivstor10/sleepus-mk3
           ssh-key: ${{ secrets.UPDATER_DEPLOY_KEY }}
           path: updater
 

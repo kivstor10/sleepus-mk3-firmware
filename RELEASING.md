@@ -25,10 +25,10 @@ The source repository is private. Published `.bin` files are copied to the publi
    gh release create v1.0.1 "Sleepus-MK3.bin#Sleepus-MK3.bin" --verify-tag --generate-notes
    ```
 
-Publishing the release triggers the workflow. It verifies that exactly one `.bin` asset exists, generates a SHA-256 manifest, and pushes both files to `kivstor10/sleepus-mk3-usb-passthrough`.
+Publishing the release triggers the workflow. It verifies that exactly one `.bin` asset exists, generates a SHA-256 manifest, and pushes both files to `kivstor10/sleepus-mk3`.
 
 ## Verify
 
 Check the **Publish firmware release** workflow in the private repository. The updater should then show the new version at:
 
-https://kivstor10.github.io/sleepus-mk3-usb-passthrough/
+https://kivstor10.github.io/sleepus-mk3/
