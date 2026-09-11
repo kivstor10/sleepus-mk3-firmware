@@ -17,6 +17,7 @@ $temporaryDirectory = Join-Path $root "build\lua-firmware\temp"
 $firmwareElf = Join-Path $root "build\lua-firmware\Sleepus-MK3-Lua-Runtime.elf"
 $firmwareHex = Join-Path $root "build\lua-firmware\Sleepus-MK3-Lua-Runtime.hex"
 $mapFile = Join-Path $root "build\lua-firmware\Sleepus-MK3-Lua-Runtime.map"
+$releaseBinary = Join-Path $root "build\Sleepus-MK3.bin"
 
 foreach($tool in @($gcc, $objcopy, $size))
 {
@@ -155,4 +156,11 @@ if($LASTEXITCODE -ne 0)
   throw "Lua archive packaging failed"
 }
 
+& $objcopy -I ihex -O binary --gap-fill 0xff $outputPath $releaseBinary
+if($LASTEXITCODE -ne 0)
+{
+  throw "Release binary generation failed"
+}
+
 Write-Output "Combined firmware: $outputPath"
+Write-Output "Release binary: $releaseBinary"
