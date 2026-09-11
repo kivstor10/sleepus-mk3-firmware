@@ -1,6 +1,8 @@
 # Sleepus MK3 WebDFU Updater
 
-Static Chrome/Edge WebUSB updater for the AT32 factory DFU bootloader (`2E3C:DF11`). Firmware is mass-erased to remove RDP Level 1, then written as a raw `.bin` image at `0x08000000`.
+Static Chrome/Edge WebUSB updater for the AT32 factory DFU bootloader (`2E3C:DF11`). Normal updates erase only the 2 KiB sectors covered by the raw `.bin` image and preserve the settings slots at `0x080FE000` through `0x080FFFFF`.
+
+Full-chip recovery is an explicit option for a device protected with RDP Level 1. It issues a mass erase to remove protection and permanently deletes saved settings.
 
 ## Publish with GitHub Pages
 

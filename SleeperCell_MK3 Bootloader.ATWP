@@ -23,6 +23,14 @@
             <ModeSub name="Time_Base" value="SysTick"/>
         </Mode>
     </SYSTEM>
+    <USART1>
+        <Mode>
+            <ModeSub name="Mode" value="Asynchronous"/>
+        </Mode>
+        <Parameters>
+            <ParametersSub name="RealBaudRate" value="115200"/>
+        </Parameters>
+    </USART1>
     <USB_OTGFS1>
         <Mode>
             <ModeSub name="Mode" value="Host_Only"/>
@@ -37,6 +45,7 @@
         <SysTick_Handler>1;15;0;0;0;1</SysTick_Handler>
         <FLASH_IRQHandler>0;0;0;0;0;0</FLASH_IRQHandler>
         <CRM_IRQHandler>0;0;0;0;0;0</CRM_IRQHandler>
+        <USART1_IRQHandler>0;0;0;0;0;0</USART1_IRQHandler>
         <OTGFS1_WKUP_IRQHandler>0;0;0;0;0;0</OTGFS1_WKUP_IRQHandler>
         <OTGFS1_IRQHandler>1;0;0;0;0;1</OTGFS1_IRQHandler>
         <OTGFS2_WKUP_IRQHandler>0;0;0;0;0;0</OTGFS2_WKUP_IRQHandler>
@@ -70,6 +79,8 @@
     <PINInfo>
         <PinSub pinname="PB14" signalname="USB_OTGFS2_D-" signaltype="2"/>
         <PinSub pinname="PB15" signalname="USB_OTGFS2_D+" signaltype="2"/>
+        <PinSub pinname="PA9" signalname="USART1_TX" signaltype="2"/>
+        <PinSub pinname="PA10" signalname="USART1_RX" signaltype="2"/>
         <PinSub pinname="PA11" signalname="USB_OTGFS1_D-" signaltype="2"/>
         <PinSub pinname="PA12" signalname="USB_OTGFS1_D+" signaltype="2"/>
         <PinSub pinname="PA13" signalname="DEBUG_JTMS_SWDIO" signaltype="2"/>
@@ -102,6 +113,6 @@
         <RankSub RankNum="55" FixPosFlag="FALSE" FuncName="wk_acc_init" InstanceName="ACC" CodeSection="acc function" MainDoNotCallFlag="FALSE"/>
         <RankSub RankNum="56" FixPosFlag="FALSE" FuncName="wk_usb_otgfs1_init" InstanceName="USB_OTGFS1" CodeSection="usb_otgfs1 function" MainDoNotCallFlag="FALSE"/>
         <RankSub RankNum="57" FixPosFlag="FALSE" FuncName="wk_usb_otgfs2_init" InstanceName="USB_OTGFS2" CodeSection="usb_otgfs2 function" MainDoNotCallFlag="FALSE"/>
-        <RankSub RankNum="99" FixPosFlag="FALSE" FuncName="wk_usb_app_init" InstanceName="USB_DEVICE/USB_HOST" CodeSection="usb_app_init" MainDoNotCallFlag="FALSE"/>
+        <RankSub RankNum="47" FixPosFlag="FALSE" FuncName="wk_usart1_init" InstanceName="USART1" CodeSection="usart1 function" MainDoNotCallFlag="FALSE"/>
     </FunctionRankInfo>
 </Root>

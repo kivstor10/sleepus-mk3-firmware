@@ -550,7 +550,9 @@ usb_sts_type usbh_get_descriptor(usbh_core_type *uhost, uint16_t length,
   uhost->ctrl.setup.wValue = wvalue;
   uhost->ctrl.setup.wLength = length;
 
-  if((wvalue & 0xFF00) == ((USB_DESCIPTOR_TYPE_STRING << 8) & 0xFF00))
+    if((wvalue & 0xFF00) == (USB_DESCIPTOR_TYPE_STRING << 8) &&
+      (uint8_t)wvalue != USB_LANGID_STRING &&
+      (uint8_t)wvalue != USB_WINUSB_OS_STRING)
   {
     uhost->ctrl.setup.wIndex = 0x0409;
   }

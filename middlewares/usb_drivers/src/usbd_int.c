@@ -24,6 +24,7 @@
   */
 #include "usbd_int.h"
 #include "hardware.h"
+#include "diagnostic_log.h"
 
 /** @addtogroup AT32F435_437_middlewares_usbd_drivers
   * @{
@@ -73,7 +74,6 @@ void usbd_irq_handler(otg_core_type *otgdev)
     /* usb reset interrupt */
     if(intsts & USB_OTG_USBRST_FLAG)
     {
-      set_status_led(1);
       usbd_reset_handler(udev);
       usb_global_clear_interrupt(usbx, USB_OTG_USBRST_FLAG);
     }
@@ -278,6 +278,8 @@ void usbd_outept_handler(usbd_core_type *udev)
         usbd_core_setup_handler(udev, ept_num);
         if(udev->device_addr != 0)
         {
+          diagnostic_trace_event("ADDRESS_CONFIRM", udev->device_addr,
+                               udev->conn_state, udev->ept0_sts);
           OTG_DEVICE(udev->usb_reg)->dcfg_bit.devaddr = udev->device_addr;
           udev->device_addr = 0;
         }

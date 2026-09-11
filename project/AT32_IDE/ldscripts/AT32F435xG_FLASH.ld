@@ -31,9 +31,16 @@ _Min_Stack_Size = 0x400; /* required amount of stack */
 /* Specify the memory areas */
 MEMORY
 {
-FLASH (rx)      : ORIGIN = 0x08000000, LENGTH = 1024K
+FLASH (rx)      : ORIGIN = 0x08000000, LENGTH = 768K
 RAM (xrw)       : ORIGIN = 0x20000000, LENGTH = 384K
 }
+
+__lua_archive_start = 0x080C0000;
+__lua_archive_end = 0x080FE000;
+__lua_archive_size = __lua_archive_end - __lua_archive_start;
+__lua_storage_slot_a = 0x080FE000;
+__lua_storage_slot_b = 0x080FF000;
+__lua_storage_slot_size = 0x1000;
 
 /* Define output sections */
 SECTIONS
@@ -146,7 +153,6 @@ SECTIONS
   /DISCARD/ :
   {
     libc.a ( * )
-    libm.a ( * )
     libgcc.a ( * )
   }
 

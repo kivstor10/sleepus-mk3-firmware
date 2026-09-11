@@ -29,6 +29,7 @@
  #include "usbh_hid_mouse.h"
  #include "usbh_hid_keyboard.h"
  #include <string.h>
+ #include "diagnostic_log.h"
 
  /** @addtogroup AT32F435_437_middlewares_usbh_class
   * @{
@@ -59,6 +60,8 @@
  static volatile uint8_t report_queue_tail;
  static uint8_t latest_input_report[64];
  static uint16_t latest_input_report_length;
+static volatile uint8_t controller_report_seen;
+static volatile uint32_t controller_last_report_frame;
  static uint8_t controller_input_report[64];
  static uint16_t controller_input_report_length;
 #define XBOX_AUDIO_INPUT_QUEUE_SIZE 8
@@ -226,6 +229,8 @@ static usb_sts_type uhost_init_handler(void *uhost)
   report_queue_head = 0;
   report_queue_tail = 0;
   latest_input_report_length = 0;
+  controller_report_seen = 0;
+  controller_last_report_frame = 0;
   controller_input_report_length = 0;
   audio_input_head = 0;
   audio_input_tail = 0;
@@ -236,6 +241,12 @@ static usb_sts_type uhost_init_handler(void *uhost)
   audio_output_error_count = 0;
   audio_output_fault_flags = 0;
   memset(&g_controller_data, 0, sizeof(g_controller_data));
+  diagnostic_trace_event("HOST_CLASS",
+                       ((uint32_t)puhost->dev.dev_desc.idVendor << 16) |
+                       puhost->dev.dev_desc.idProduct,
+                       ((uint32_t)phid->eptin << 16) | phid->eptout,
+                       ((uint32_t)phid->in_maxpacket << 16) |
+                       phid->out_maxpacket);
   return status;
 }
 
@@ -291,6 +302,8 @@ static usb_sts_type uhost_reset_handler(void *uhost)
   report_queue_head = 0;
   report_queue_tail = 0;
   latest_input_report_length = 0;
+  controller_report_seen = 0;
+  controller_last_report_frame = 0;
   controller_input_report_length = 0;
   audio_input_head = 0;
   audio_input_tail = 0;
@@ -300,6 +313,7 @@ static usb_sts_type uhost_reset_handler(void *uhost)
   audio_output_tail = 0;
   audio_output_error_count = 0;
   memset(&g_controller_data, 0, sizeof(g_controller_data));
+  diagnostic_trace_event("HOST_RESET", puhost->global_state, 0, 0);
 
   return status;
 }
@@ -494,6 +508,7 @@ static usb_sts_type uhost_request_handler(void *uhost)
       }
       if(usbh_ctrl_result_check(puhost, CONTROL_IDLE, ENUM_IDLE) == USB_OK)
       {
+        diagnostic_trace_event("SET_IF", 0, 1, 0);
         phid->ctrl_state = USB_XBOX_STATE_DISABLE_CHAT_INTERFACE;
       }
       break;
@@ -504,6 +519,7 @@ static usb_sts_type uhost_request_handler(void *uhost)
       }
       if(usbh_ctrl_result_check(puhost, CONTROL_IDLE, ENUM_IDLE) == USB_OK)
       {
+        diagnostic_trace_event("SET_IF", 2, 0, 0);
         phid->ctrl_state = USB_XBOX_STATE_SET_AUDIO_INTERFACE;
       }
       break;
@@ -514,6 +530,7 @@ static usb_sts_type uhost_request_handler(void *uhost)
       }
       if(usbh_ctrl_result_check(puhost, CONTROL_IDLE, ENUM_IDLE) == USB_OK)
       {
+        diagnostic_trace_event("SET_IF", 1, 1, 0);
         phid->ctrl_state = USB_HID_STATE_COMPLETE;
       }
       break;
@@ -561,6 +578,10 @@ static usb_sts_type uhost_process_handler(void *uhost)
         if(urb_status == URB_DONE)
         {
           puhost->urb_state[phid->chin] = URB_IDLE;
+          if(puhost->hch[phid->chin].trans_count != 0)
+          {
+            controller_last_report_frame = puhost->timer;
+          }
           xbox_input_report_decode((uint8_t *)phid->buffer,
                                    (uint16_t)puhost->hch[phid->chin].trans_count);
 
@@ -788,7 +809,30 @@ static uint8_t xbox_input_report_decode(const uint8_t *report, uint16_t length)
   memcpy(report_queue[report_queue_head], report, length);
   report_queue_lengths[report_queue_head] = length;
   report_queue_head = next;
+  if(!controller_report_seen)
+  {
+    uint32_t prefix = 0;
+    uint16_t index;
+    for(index = 0; index < length && index < 4U; index++)
+    {
+      prefix = (prefix << 8) | report[index];
+    }
+    diagnostic_trace_event("FIRST_IN", length, prefix, usbh_hid.in_poll);
+  }
+  controller_report_seen = 1;
   return 1;
+}
+
+uint8_t usbh_controller_report_seen(void)
+{
+  return controller_report_seen;
+}
+
+uint8_t usbh_controller_report_recent(usbh_core_type *uhost,
+                                      uint32_t maximum_age_ms)
+{
+  return uhost != NULL && controller_report_seen &&
+    (uint32_t)(uhost->timer - controller_last_report_frame) < maximum_age_ms;
 }
 
 uint8_t usbh_get_latest_report(controller_data_t *data)

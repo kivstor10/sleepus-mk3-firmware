@@ -33,6 +33,9 @@ void hardware_task(void);
 uint8_t read_menu_buttons(void);
 void set_status_led(uint8_t state);
 void toggle_status_led(void);
+void oled_clear(void);
+void oled_draw_text_at(uint8_t x, uint8_t y, const char *text);
+void oled_draw_pixel(uint8_t x, uint8_t y, uint8_t state);
 void oled_update_status(uint8_t controller_connected, uint8_t mods_enabled);
 
 #ifdef __cplusplus

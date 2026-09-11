@@ -48,7 +48,7 @@ void wk_acc_init(void)
   acc_write_c3(8020);
 
   /* SOF select */
-  acc_sof_select(ACC_SOF_OTG2);
+  acc_sof_select(ACC_SOF_OTG2); 
 
   /* add user code begin acc_init 1 */
 

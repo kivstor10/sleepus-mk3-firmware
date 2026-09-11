@@ -102,6 +102,10 @@ extern "C" {
 extern uint8_t g_usbd_custom_hid_report[USBD_CUSHID_SIZ_REPORT_DESC];
 extern uint8_t g_custom_hid_usb_desc[9];
 extern usbd_desc_handler custom_hid_desc_handler;
+void custom_hid_desc_set_device(const usb_device_desc_type *device);
+uint8_t custom_hid_desc_set_configuration(const uint8_t *configuration,
+                                          uint16_t length);
+void custom_hid_desc_set_serial(const uint8_t *serial);
 
 /**
   * @}

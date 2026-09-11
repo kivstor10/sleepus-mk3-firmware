@@ -12,7 +12,7 @@
 #define B_REPEAT_INTERVAL_MS              10U
 #define RT_REPEAT_INTERVAL_MS             5U
 
-static uint8_t repeat_features_enabled = 1;
+static uint8_t repeat_features_enabled;
 static uint8_t left_dpad_held;
 static uint32_t left_dpad_started_at;
 static uint8_t b_repeat_active;

@@ -129,6 +129,8 @@ typedef enum
   ENUM_GET_MFC_STRING,                   /*!< usb host enumration state get manufacturer string */
   ENUM_GET_PRODUCT_STRING,               /*!< usb host enumration state get product string */
   ENUM_GET_SERIALNUM_STRING,             /*!< usb host enumration state get serial number string */
+  ENUM_GET_OS_STRING,                    /*!< usb host enumeration state get Microsoft OS string */
+  ENUM_GET_DEVICE_QUALIFIER,             /*!< usb host enumeration state get device qualifier */
   ENUM_SET_CONFIG,                       /*!< usb host enumration state set config */
   ENUM_COMPLETE,                         /*!< usb host enumration state complete */
 } usbh_enum_sts_type;
@@ -228,6 +230,14 @@ typedef struct
   uint8_t                                speed;                          /*!< usb device speed */
   usb_device_desc_type                   dev_desc;                       /*!< usb device descriptor */
   usb_cfg_desc_type                      cfg_desc;                       /*!< usb device configuration */
+  uint8_t                                raw_configuration[USB_MAX_DATA_LENGTH]; /*!< raw configuration descriptor */
+  uint16_t                               raw_configuration_length;       /*!< raw configuration length */
+  uint8_t                                os_string[18];                  /*!< raw Microsoft OS string descriptor */
+  uint8_t                                os_string_length;               /*!< received Microsoft OS string length */
+  uint8_t                                os_string_supported;            /*!< Microsoft OS string request succeeded */
+  uint8_t                                qualifier[10];                  /*!< raw device qualifier descriptor */
+  uint8_t                                qualifier_length;               /*!< received device qualifier length */
+  uint8_t                                qualifier_supported;            /*!< device qualifier request succeeded */
 } usbh_dev_desc_type;
 
 /**

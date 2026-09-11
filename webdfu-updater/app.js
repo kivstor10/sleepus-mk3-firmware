@@ -3,10 +3,17 @@
 
   const USB_FILTER = { vendorId: 0x2e3c, productId: 0xdf11 };
   const FLASH_BASE = 0x08000000;
+  const FLASH_SIZE = 0x00100000;
+  const LUA_ARCHIVE_ADDRESS = 0x080c0000;
+  const LUA_ARCHIVE_END = 0x080fe000;
+  const LUA_ARCHIVE_OFFSET = LUA_ARCHIVE_ADDRESS - FLASH_BASE;
+  const LUA_ARCHIVE_CAPACITY = LUA_ARCHIVE_END - LUA_ARCHIVE_ADDRESS;
   const DEFAULT_TRANSFER_SIZE = 2048;
-  const MASS_ERASE_COMMAND = 0x41;
+  const FLASH_SECTOR_SIZE = 2048;
+  const ERASE_COMMAND = 0x41;
   const RECONNECT_TIMEOUT_MS = 20000;
   const FIRMWARE_MANIFEST_URL = "firmware/manifest.json";
+  const DEFAULT_LUA_ARCHIVE_URL = "firmware/default.sleepus-pack";
 
   let device = null;
   let selectedFile = null;
@@ -35,6 +42,7 @@
   const progressBar = document.querySelector("#progressBar");
   const progressStage = document.querySelector("#progressStage");
   const progressValue = document.querySelector("#progressValue");
+  const fullEraseToggle = document.querySelector("#fullEraseToggle");
 
   function formatError(error) {
     if (typeof error === "string") return error;
@@ -76,12 +84,41 @@
     firmwareFile.disabled = operationInProgress;
     latestFirmwareButton.disabled = operationInProgress;
     clearFileButton.disabled = operationInProgress;
+    fullEraseToggle.disabled = operationInProgress;
     flashButton.disabled = !connected || !selectedFile || operationInProgress;
   }
 
   async function sha256Hex(data) {
     const digest = await crypto.subtle.digest("SHA-256", data);
     return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+  }
+
+  async function fetchBinary(url, label) {
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) throw new Error(`${label} download failed with HTTP ${response.status}.`);
+    return new Uint8Array(await response.arrayBuffer());
+  }
+
+  async function buildSilentUpdatePayload(firmwareUrl, archiveUrl = DEFAULT_LUA_ARCHIVE_URL) {
+    const [firmware, archive] = await Promise.all([
+      fetchBinary(firmwareUrl, "Firmware"),
+      fetchBinary(archiveUrl, "Default script archive")
+    ]);
+
+    if (!firmware.byteLength) throw new Error("The downloaded firmware is empty.");
+    if (!archive.byteLength) throw new Error("The downloaded script archive is empty.");
+    if (firmware.byteLength > LUA_ARCHIVE_OFFSET) {
+      throw new Error(`Firmware overlaps the reserved script address 0x${LUA_ARCHIVE_ADDRESS.toString(16).toUpperCase()}.`);
+    }
+    if (archive.byteLength > LUA_ARCHIVE_CAPACITY) {
+      throw new Error(`The script archive exceeds its ${LUA_ARCHIVE_CAPACITY.toLocaleString()}-byte flash allocation.`);
+    }
+
+    const payload = new Uint8Array(LUA_ARCHIVE_OFFSET + archive.byteLength);
+    payload.fill(0xff);
+    payload.set(firmware, 0);
+    payload.set(archive, LUA_ARCHIVE_OFFSET);
+    return payload.buffer;
   }
 
   function selectFirmware(file, detail) {
@@ -255,7 +292,7 @@
     log("Issuing DfuSe full-chip mass erase (0x41).", "WARN");
     setProgress("Mass erasing flash", 8);
 
-    await activeDevice.download(Uint8Array.of(MASS_ERASE_COMMAND).buffer, 0);
+    await activeDevice.download(Uint8Array.of(ERASE_COMMAND).buffer, 0);
     try {
       const status = await activeDevice.poll_until(state => state !== dfu.dfuDNBUSY && state !== dfu.dfuDNLOAD_SYNC);
       if (status.status !== dfu.STATUS_OK) {
@@ -271,6 +308,34 @@
       log("Bootloader reset after removing read protection; waiting for DFU to return.", "WARN");
       return true;
     }
+  }
+
+  async function eraseImageSectors(activeDevice, imageLength) {
+    const maximumLength = LUA_ARCHIVE_END - FLASH_BASE;
+    if (imageLength > maximumLength) {
+      throw new Error("Firmware overlaps the protected settings slots at 0x080FE000.");
+    }
+
+    const sectorCount = Math.ceil(imageLength / FLASH_SECTOR_SIZE);
+    await ensureIdle(activeDevice);
+    log(`Erasing ${sectorCount.toLocaleString()} firmware sectors; settings at 0x080FE000-0x080FFFFF will be preserved.`);
+
+    for (let sector = 0; sector < sectorCount; sector++) {
+      const address = FLASH_BASE + sector * FLASH_SECTOR_SIZE;
+      const command = new Uint8Array(5);
+      command[0] = ERASE_COMMAND;
+      new DataView(command.buffer).setUint32(1, address, true);
+      await activeDevice.download(command.buffer, 0);
+      const status = await activeDevice.poll_until(state =>
+        state !== dfu.dfuDNBUSY && state !== dfu.dfuDNLOAD_SYNC
+      );
+      if (status.status !== dfu.STATUS_OK) {
+        throw new Error(`Sector erase failed at 0x${address.toString(16).toUpperCase()} with DFU status ${status.status}. Use Full-chip recovery only if the device is read-protected.`);
+      }
+      setProgress("Erasing firmware", 5 + ((sector + 1) / sectorCount) * 20);
+    }
+    await ensureIdle(activeDevice);
+    log("Firmware sectors erased. Saved settings were not touched.");
   }
 
   async function writeFirmware(activeDevice, image) {
@@ -308,6 +373,11 @@
       if (!isDisconnectError(error)) throw error;
       log("Device reset after firmware manifestation.");
     }
+  }
+
+  async function writeSilentUpdate(activeDevice, firmwareUrl) {
+    const payload = await buildSilentUpdatePayload(firmwareUrl);
+    await writeFirmware(activeDevice, payload);
   }
 
   async function waitForReconnect(previousUsbDevice) {
@@ -349,9 +419,16 @@
       if (!image.byteLength) throw new Error("The selected firmware file is empty.");
       log(`Starting update with ${selectedFile.name} (${image.byteLength.toLocaleString()} bytes).`);
 
-      const beforeErase = device.device_;
-      const disconnected = await massErase(device);
-      if (disconnected) await waitForReconnect(beforeErase);
+      if (fullEraseToggle.checked) {
+        if (!window.confirm("Full-chip recovery permanently deletes all saved recoil configurations. Continue?")) {
+          throw new Error("Full-chip recovery cancelled.");
+        }
+        const beforeErase = device.device_;
+        const disconnected = await massErase(device);
+        if (disconnected) await waitForReconnect(beforeErase);
+      } else {
+        await eraseImageSectors(device, image.byteLength);
+      }
 
       await ensureIdle(device);
       device.startAddress = FLASH_BASE;

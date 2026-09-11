@@ -862,6 +862,11 @@ usb_sts_type usbh_enum_handler(usbh_core_type *uhost)
 
       if(usbh_ctrl_result_check(uhost, CONTROL_IDLE, ENUM_GET_MFC_STRING) == USB_OK)
       {
+        uhost->dev.raw_configuration_length =
+          MIN(uhost->dev.cfg_desc.cfg.wTotalLength,
+              sizeof(uhost->dev.raw_configuration));
+        memcpy(uhost->dev.raw_configuration, uhost->rx_buffer,
+               uhost->dev.raw_configuration_length);
         usbh_parse_configure_desc(uhost, uhost->rx_buffer, uhost->dev.cfg_desc.cfg.wTotalLength);
       }
       break;
@@ -904,12 +909,83 @@ usb_sts_type usbh_enum_handler(usbh_core_type *uhost)
                                   uhost->rx_buffer, 0xFF);
       }
 
-      if(usbh_ctrl_result_check(uhost, CONTROL_IDLE, ENUM_SET_CONFIG) == USB_OK)
+      if(usbh_ctrl_result_check(uhost, CONTROL_IDLE,
+                                ENUM_GET_OS_STRING) == USB_OK)
       {
         usbh_parse_string_desc(uhost->rx_buffer, uhost->rx_buffer, 0xFF);
         uhost->user_handler->user_serial_string(uhost->rx_buffer);
       }
       break;
+
+    case ENUM_GET_OS_STRING:
+    {
+      usb_sts_type os_status;
+      uint16_t os_length;
+
+      if(uhost->ctrl.state == CONTROL_IDLE)
+      {
+        usbh_get_descriptor(uhost, sizeof(uhost->dev.os_string),
+                            USB_REQ_TYPE_STANDARD,
+                            (USB_DESCIPTOR_TYPE_STRING << 8) |
+                              USB_WINUSB_OS_STRING,
+                            uhost->rx_buffer);
+      }
+      os_status = usbh_ctrl_result_check(uhost, CONTROL_IDLE,
+                                         ENUM_GET_DEVICE_QUALIFIER);
+      if(os_status == USB_WAIT)
+      {
+        break;
+      }
+
+      uhost->dev.os_string_supported = 0;
+      uhost->dev.os_string_length = 0;
+      os_length = uhost->hch[uhost->ctrl.hch_in].trans_count;
+      if(os_status == USB_OK && os_length >= 2 &&
+         os_length <= sizeof(uhost->dev.os_string) &&
+         uhost->rx_buffer[0] == os_length &&
+         uhost->rx_buffer[1] == USB_DESCIPTOR_TYPE_STRING)
+      {
+        memcpy(uhost->dev.os_string, uhost->rx_buffer, os_length);
+        uhost->dev.os_string_length = (uint8_t)os_length;
+        uhost->dev.os_string_supported = 1;
+      }
+      break;
+    }
+
+    case ENUM_GET_DEVICE_QUALIFIER:
+    {
+      usb_sts_type qualifier_status;
+      uint16_t qualifier_length;
+
+      if(uhost->ctrl.state == CONTROL_IDLE)
+      {
+        usbh_get_descriptor(uhost, sizeof(uhost->dev.qualifier),
+                            USB_REQ_TYPE_STANDARD,
+                            USB_DESCIPTOR_TYPE_DEVICE_QUALIFIER << 8,
+                            uhost->rx_buffer);
+      }
+      qualifier_status = usbh_ctrl_result_check(uhost, CONTROL_IDLE,
+                                                 ENUM_SET_CONFIG);
+      if(qualifier_status == USB_WAIT)
+      {
+        break;
+      }
+
+      uhost->dev.qualifier_supported = 0;
+      uhost->dev.qualifier_length = 0;
+      qualifier_length = uhost->hch[uhost->ctrl.hch_in].trans_count;
+      if(qualifier_status == USB_OK &&
+         qualifier_length == sizeof(uhost->dev.qualifier) &&
+         uhost->rx_buffer[0] == sizeof(uhost->dev.qualifier) &&
+         uhost->rx_buffer[1] == USB_DESCIPTOR_TYPE_DEVICE_QUALIFIER)
+      {
+        memcpy(uhost->dev.qualifier, uhost->rx_buffer,
+               sizeof(uhost->dev.qualifier));
+        uhost->dev.qualifier_length = sizeof(uhost->dev.qualifier);
+        uhost->dev.qualifier_supported = 1;
+      }
+      break;
+    }
 
     case ENUM_SET_CONFIG:
       /* set device config */

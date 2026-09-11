@@ -113,7 +113,8 @@ static usb_sts_type usbd_get_descriptor(usbd_core_type *udev)
             usbd_ctrl_unsupport(udev);
           }
 #else
-          usbd_ctrl_unsupport(udev);
+          udev->class_handler->setup_handler(udev, &udev->setup);
+          return ret;
 #endif
           break;
         default:
@@ -123,10 +124,10 @@ static usb_sts_type usbd_get_descriptor(usbd_core_type *udev)
       break;
     }
     case USB_DESCIPTOR_TYPE_DEVICE_QUALIFIER:
-      usbd_ctrl_unsupport(udev);
-      break;
+      udev->class_handler->setup_handler(udev, &udev->setup);
+      return ret;
     case USB_DESCIPTOR_TYPE_OTHER_SPEED:
-      usbd_ctrl_unsupport(udev);
+      udev->class_handler->setup_handler(udev, &udev->setup);
       return ret;
     default:
       usbd_ctrl_unsupport(udev);

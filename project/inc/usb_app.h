@@ -67,6 +67,9 @@ void wk_usb_host_init(void);
 
 void wk_usb_app_task(void);
 
+uint8_t usb_device_configured(void);
+void usb_show_startup_screen(void);
+
 void wk_otgfs1_irq_handler(void);
 
 void wk_otgfs2_irq_handler(void);
@@ -74,6 +77,43 @@ void wk_otgfs2_irq_handler(void);
 uint8_t usb_device_send_report(const uint8_t *report, uint16_t length);
 uint8_t usb_audio_output_faults(void);
 void usb_audio_output_faults_clear(void);
+
+typedef enum
+{
+  USB_CONFIG_IDLE = 0,
+  USB_CONFIG_WAIT_STORAGE,
+  USB_CONFIG_WORKING,
+  USB_CONFIG_SUCCESS,
+  USB_CONFIG_ERROR
+} usb_config_status_type;
+
+typedef enum
+{
+  USB_CONFIG_EXPORT = 1,
+  USB_CONFIG_IMPORT
+} usb_config_operation_type;
+
+typedef enum
+{
+  USB_CONFIG_ERROR_NONE = 0,
+  USB_CONFIG_ERROR_PAYLOAD,
+  USB_CONFIG_ERROR_NOT_READY,
+  USB_CONFIG_ERROR_DISK,
+  USB_CONFIG_ERROR_FILESYSTEM,
+  USB_CONFIG_ERROR_MOUNT,
+  USB_CONFIG_ERROR_OPEN,
+  USB_CONFIG_ERROR_WRITE,
+  USB_CONFIG_ERROR_SYNC,
+  USB_CONFIG_ERROR_CLOSE,
+  USB_CONFIG_ERROR_RENAME,
+  USB_CONFIG_ERROR_READ,
+  USB_CONFIG_ERROR_INVALID_FILE
+} usb_config_error_type;
+
+uint8_t usb_config_request(usb_config_operation_type operation);
+usb_config_status_type usb_config_status(void);
+usb_config_error_type usb_config_error(void);
+uint8_t usb_config_reset(void);
 
 /* add user code begin exported functions */
 

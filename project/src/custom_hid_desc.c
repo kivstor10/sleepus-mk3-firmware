@@ -268,10 +268,7 @@ ALIGNED_HEAD static uint8_t g_string_lang_id[USBD_CUSHID_SIZ_STRING_LANGID] ALIG
 #endif
 ALIGNED_HEAD static uint8_t g_string_serial[USBD_CUSHID_SIZ_STRING_SERIAL] ALIGNED_TAIL =
 {
-  0x3A, 0x03, '3', 0, '0', 0, '3', 0, '9', 0, '3', 0, '7', 0,
-  '3', 0, '1', 0, '3', 0, '0', 0, '3', 0, '6', 0, '3', 0, '7', 0,
-  '3', 0, '0', 0, '3', 0, '3', 0, '3', 0, '6', 0, '3', 0, '7', 0,
-  '3', 0, '2', 0, '3', 0, '3', 0, '3', 0, '9', 0
+  0x02, USB_DESCIPTOR_TYPE_STRING
 };
 
 
@@ -304,6 +301,64 @@ static usbd_desc_t serial_descriptor =
 };
 
 static usbd_desc_t vp_desc;
+
+void custom_hid_desc_set_device(const usb_device_desc_type *device)
+{
+  if(device == NULL || device->bLength != USB_DEVICE_DESC_LEN ||
+     device->bDescriptorType != USB_DESCIPTOR_TYPE_DEVICE)
+  {
+    return;
+  }
+
+  g_usbd_descriptor[2] = LBYTE(device->bcdUSB);
+  g_usbd_descriptor[3] = HBYTE(device->bcdUSB);
+  g_usbd_descriptor[4] = device->bDeviceClass;
+  g_usbd_descriptor[5] = device->bDeviceSubClass;
+  g_usbd_descriptor[6] = device->bDeviceProtocol;
+  g_usbd_descriptor[7] = device->bMaxPacketSize0;
+  g_usbd_descriptor[8] = LBYTE(device->idVendor);
+  g_usbd_descriptor[9] = HBYTE(device->idVendor);
+  g_usbd_descriptor[10] = LBYTE(device->idProduct);
+  g_usbd_descriptor[11] = HBYTE(device->idProduct);
+  g_usbd_descriptor[12] = LBYTE(device->bcdDevice);
+  g_usbd_descriptor[13] = HBYTE(device->bcdDevice);
+  g_usbd_descriptor[14] = device->iManufacturer;
+  g_usbd_descriptor[15] = device->iProduct;
+  g_usbd_descriptor[16] = device->iSerialNumber;
+  g_usbd_descriptor[17] = device->bNumConfigurations;
+}
+
+uint8_t custom_hid_desc_set_configuration(const uint8_t *configuration,
+                                          uint16_t length)
+{
+  if(configuration == NULL || length != sizeof(g_usbd_configuration) ||
+     configuration[0] != USB_DEVICE_CFG_DESC_LEN ||
+     configuration[1] != USB_DESCIPTOR_TYPE_CONFIGURATION ||
+     configuration[2] != LBYTE(length) ||
+     configuration[3] != HBYTE(length))
+  {
+    return 0;
+  }
+
+  memcpy(g_usbd_configuration, configuration, length);
+  return 1;
+}
+
+void custom_hid_desc_set_serial(const uint8_t *serial)
+{
+  uint8_t length = 0;
+
+  while(serial != NULL && serial[length] != 0 &&
+        length < (USBD_CUSHID_SIZ_STRING_SERIAL - 2U) / 2U)
+  {
+    g_string_serial[2U + length * 2U] = serial[length];
+    g_string_serial[3U + length * 2U] = 0;
+    length++;
+  }
+  serial_descriptor.length = (uint16_t)(2U + length * 2U);
+  g_string_serial[0] = (uint8_t)serial_descriptor.length;
+  g_string_serial[1] = USB_DESCIPTOR_TYPE_STRING;
+}
 
 /**
   * @brief  standard usb unicode convert

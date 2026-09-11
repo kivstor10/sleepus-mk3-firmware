@@ -25,6 +25,7 @@
 /* add user code end Header */
 
 #include "usbh_user.h"
+#include "custom_hid_desc.h"
 
 /* private includes ----------------------------------------------------------*/
 /* add user code begin private includes */
@@ -259,6 +260,7 @@ static usb_sts_type usbh_user_serial_string(void *string)
 
   usb_sts_type status = USB_OK;
   USBH_DEBUG("Serial: %s", (uint8_t *)string);
+  custom_hid_desc_set_serial((const uint8_t *)string);
 
   /* add user code begin usbh_user_serial_string 1 */
 

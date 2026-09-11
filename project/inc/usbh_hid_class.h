@@ -144,6 +144,9 @@ typedef struct
 
 extern usbh_class_handler_type uhost_hid_class_handler;
 extern controller_data_t g_controller_data;
+uint8_t usbh_controller_report_seen(void);
+uint8_t usbh_controller_report_recent(usbh_core_type *uhost,
+                                      uint32_t maximum_age_ms);
 uint8_t usbh_get_latest_report(controller_data_t *data);
 uint16_t usbh_encode_latest_report(const controller_data_t *data,
                                    uint8_t *report, uint16_t capacity);

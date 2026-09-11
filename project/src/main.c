@@ -34,6 +34,8 @@
 #include "controller_data.h"
 #include "mod_engine.h"
 #include "usbh_hid_class.h"
+#include "diagnostic_log.h"
+#include "lua_runtime.h"
 
 #define MOD_ENGINE_IMPLEMENTATION
 #include "mod_engine.c"
@@ -88,15 +90,15 @@ int main(void)
   uint8_t report[64];
   uint16_t report_length;
   uint32_t current_time;
-  uint8_t menu_buttons;
-  uint8_t menu_up_was_held = 0;
   uint8_t cached_input_ready = 0;
   uint8_t report_pending = 0;
   uint8_t repeat_led_state = 0xFF;
-  uint8_t audio_faults;
-  uint8_t audio_fault_display = 0;
-  uint32_t audio_fault_display_after = 0;
-  uint32_t audio_fault_display_started = 0;
+  uint8_t oled_controller_connected = 0;
+  uint8_t console_was_configured = 0;
+  uint8_t oled_status_dirty = 1;
+  uint8_t oled_lua_active;
+  uint32_t last_controller_report = 0;
+  uint8_t output_changed;
 
   /* add user code begin 1 */
 
@@ -118,21 +120,27 @@ int main(void)
 
   hardware_init();
   hardware_debug_led_init();
-  set_status_led(mod_engine_repeat_features_enabled());
+  set_status_led(0);
+  diagnostic_uart_init();
+  diagnostic_log_event("BOOT", 0, 0, 0);
+  oled_lua_active = lua_runtime_init();
+  memset(&cached_data, 0, sizeof(cached_data));
+  lua_runtime_task(&cached_data, get_system_tick());
 
   /* init acc function. */
   wk_acc_init();
 
+#ifndef USB_UPSTREAM_ISOLATION_TEST
   /* init usb_otgfs2 function. */
   wk_usb_otgfs2_init();
+#endif
 
-  /* Expose the device immediately; controller enumeration remains nonblocking. */
-  if(wk_usb_device_init())
-  {
-    set_status_led(0);
-  }
-
+#ifndef USB_DOWNSTREAM_ISOLATION_TEST
   wk_usb_otgfs1_init();
+#endif
+
+  wk_usb_app_init();
+  wk_usb_device_init();
   wk_usb_host_init();
 
   /* add user code begin 2 */
@@ -141,7 +149,32 @@ int main(void)
 
   while(1)
   {
+    uint8_t console_is_configured;
+
     wk_usb_app_task();
+    hardware_task();
+    diagnostic_uart_task();
+    console_is_configured = usb_device_configured();
+    if(console_is_configured && !console_was_configured)
+    {
+      oled_clear();
+      if(lua_runtime_active())
+      {
+        lua_runtime_console_connected();
+      }
+      else
+      {
+        oled_status_dirty = 1;
+      }
+    }
+        else if(!console_is_configured && console_was_configured &&
+          usb_config_status() == USB_CONFIG_IDLE)
+    {
+      usb_show_startup_screen();
+      set_status_led(0);
+    }
+    console_was_configured = console_is_configured;
+    lua_runtime_task(&cached_data, get_system_tick());
 
     if(report_pending && usb_device_send_report(report, report_length))
     {
@@ -153,6 +186,12 @@ int main(void)
       if(usbh_get_latest_report(&raw_data))
       {
         current_time = get_system_tick();
+        last_controller_report = current_time;
+        if(!oled_controller_connected)
+        {
+          oled_controller_connected = 1;
+          oled_status_dirty = 1;
+        }
         report_length = usbh_encode_latest_report(&raw_data, report,
                                                   sizeof(report));
         if(report_length >= 2 && report[0] == 0x20 && report[1] == 0x00)
@@ -160,7 +199,11 @@ int main(void)
           cached_data = raw_data;
           cached_input_ready = 1;
           output_data = cached_data;
-          mod_engine_process(&output_data, current_time);
+          if(!lua_runtime_active())
+          {
+            mod_engine_process(&output_data, current_time);
+          }
+          lua_runtime_process_input(&cached_data, &output_data, current_time);
           report_length = usbh_encode_latest_report(&output_data, report,
                                                     sizeof(report));
         }
@@ -170,7 +213,16 @@ int main(void)
       {
         current_time = get_system_tick();
         output_data = cached_data;
-        if(mod_engine_process(&output_data, current_time))
+        output_changed = 0;
+        if(!lua_runtime_active())
+        {
+          output_changed = mod_engine_process(&output_data, current_time);
+        }
+        if(lua_runtime_apply_pending(&output_data, current_time))
+        {
+          output_changed = 1;
+        }
+        if(output_changed)
         {
           report_length = usbh_encode_controller_report(&output_data, report,
                                                         sizeof(report));
@@ -184,57 +236,40 @@ int main(void)
       report_pending = 0;
     }
 
-    menu_buttons = read_menu_buttons();
-    if((menu_buttons & MENU_BUTTON_UP) != 0)
-    {
-      if(!menu_up_was_held)
-      {
-        mod_engine_toggle_repeat_features(get_system_tick());
-      }
-      menu_up_was_held = 1;
-    }
-    else
-    {
-      menu_up_was_held = 0;
-    }
-
     if(repeat_led_state != mod_engine_repeat_features_enabled())
     {
       repeat_led_state = mod_engine_repeat_features_enabled();
-      usb_audio_output_faults_clear();
-      audio_fault_display = 0;
-      set_status_led(repeat_led_state);
-      audio_fault_display_after = get_system_tick() + 1000U;
+      oled_status_dirty = 1;
     }
 
     current_time = get_system_tick();
-    audio_faults = usb_audio_output_faults();
-    if(audio_fault_display == 0 && audio_faults != 0 &&
-       (int32_t)(current_time - audio_fault_display_after) >= 0)
+    if(oled_lua_active != lua_runtime_active())
     {
-      audio_fault_display = audio_faults;
-      audio_fault_display_started = current_time;
-      usb_audio_output_faults_clear();
-    }
-    if(audio_fault_display != 0)
-    {
-      uint32_t elapsed = current_time - audio_fault_display_started;
-      uint8_t pulse_count = (audio_fault_display & 0x04) != 0 ? 3U :
-                            ((audio_fault_display & 0x02) != 0 ? 2U : 1U);
-
-      if(elapsed < (uint32_t)pulse_count * 250U)
-      {
-        set_status_led((uint8_t)((elapsed % 250U) < 100U));
-      }
-      else if(elapsed < 1200U)
+      oled_lua_active = lua_runtime_active();
+      oled_status_dirty = 1;
+      if(!oled_lua_active)
       {
         set_status_led(0);
       }
-      else
+    }
+    if(oled_controller_connected &&
+       (uint32_t)(current_time - last_controller_report) >= 1000U)
+    {
+      oled_controller_connected = 0;
+      oled_status_dirty = 1;
+    }
+    if(oled_status_dirty)
+    {
+      if(!oled_lua_active)
       {
-        audio_fault_display = 0;
-        set_status_led(repeat_led_state);
+        oled_update_status(oled_controller_connected,
+                           mod_engine_repeat_features_enabled());
       }
+      oled_status_dirty = 0;
+    }
+    if(!console_is_configured)
+    {
+      set_status_led(0);
     }
     /* add user code begin 3 */
 

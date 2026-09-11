@@ -164,11 +164,15 @@ void wk_periph_clock_config(void)
   /* enable gpiob periph clock */
   crm_periph_clock_enable(CRM_GPIOB_PERIPH_CLOCK, TRUE);
 
+#ifndef USB_UPSTREAM_ISOLATION_TEST
   /* enable usb_otgfs2 periph clock */
   crm_periph_clock_enable(CRM_OTGFS2_PERIPH_CLOCK, TRUE);
+#endif
 
+#ifndef USB_DOWNSTREAM_ISOLATION_TEST
   /* enable usb_otgfs1 periph clock */
   crm_periph_clock_enable(CRM_OTGFS1_PERIPH_CLOCK, TRUE);
+#endif
 
   /* enable acc periph clock */
   crm_periph_clock_enable(CRM_ACC_PERIPH_CLOCK, TRUE);
@@ -190,8 +194,12 @@ void wk_nvic_config(void)
   NVIC_SetPriority(DebugMonitor_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 0, 0));
   NVIC_SetPriority(PendSV_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 0, 0));
   NVIC_SetPriority(SysTick_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 15, 0));
+#ifndef USB_DOWNSTREAM_ISOLATION_TEST
   nvic_irq_enable(OTGFS1_IRQn, 0, 0);
+#endif
+#ifndef USB_UPSTREAM_ISOLATION_TEST
   nvic_irq_enable(OTGFS2_IRQn, 1, 0);
+#endif
 }
 
 /* add user code begin 1 */

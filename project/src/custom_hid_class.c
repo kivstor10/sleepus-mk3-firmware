@@ -25,6 +25,7 @@
 #include "usbd_core.h"
 #include "custom_hid_class.h"
 #include "custom_hid_desc.h"
+#include "diagnostic_log.h"
 #include <string.h>
 
 /** @addtogroup AT32F435_437_middlewares_usbd_class
@@ -65,15 +66,17 @@ typedef enum
 static volatile xbox_control_state_type xbox_control_state;
 static usb_setup_type xbox_control_setup;
 static uint8_t xbox_control_buffer[USBD_XBOX_CONTROL_MAX_SIZE];
-static const uint8_t xbox_capability_response[40] =
-{
-  0x28, 0x00, 0x00, 0x00, 0x00, 0x01, 0x04, 0x00,
-  0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-  0x00, 0x01, 0x58, 0x47, 0x49, 0x50, 0x31, 0x30,
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-};
 static volatile uint16_t xbox_output_length;
+static uint8_t xbox_device_qualifier[10];
+static uint8_t xbox_device_qualifier_length;
+static uint8_t xbox_device_qualifier_known;
+static uint8_t xbox_os_string[18];
+static uint8_t xbox_os_string_length;
+static uint8_t xbox_os_string_known;
+static uint8_t xbox_other_speed_configuration[USBD_CUSHID_CONFIG_DESC_SIZE];
+static volatile uint8_t xbox_upstream_reset_seen;
+static volatile uint8_t xbox_upstream_session_active;
+static volatile uint8_t xbox_upstream_wakeup_pending;
 #define XBOX_AUDIO_QUEUE_SIZE 128
 static uint8_t xbox_audio_queue[XBOX_AUDIO_QUEUE_SIZE]
                                [USBD_XBOX_AUDIO_OUT_MAXPACKET_SIZE];
@@ -124,6 +127,7 @@ static usb_sts_type class_init_handler(void *udev)
 
   pcshid->send_state = 0;
   pcshid->audio_send_state = 0;
+  xbox_upstream_session_active = 0;
   xbox_output_length = 0;
   xbox_audio_head = 0;
   xbox_audio_tail = 0;
@@ -172,28 +176,90 @@ static usb_sts_type class_setup_handler(void *udev, usb_setup_type *setup)
   usb_sts_type status = USB_OK;
   usbd_core_type *pudev = (usbd_core_type *)udev;
   custom_hid_type *pcshid = (custom_hid_type *)pudev->class_handler->pdata;
+  usbd_desc_t *config_descriptor;
   uint16_t len;
   uint8_t *buf;
-
-  if(setup->bmRequestType == 0xC0 && setup->bRequest == 0x90 &&
-     setup->wValue == 0 && setup->wIndex == 4)
-  {
-    len = MIN(sizeof(xbox_capability_response), setup->wLength);
-    usbd_ctrl_send(pudev, (uint8_t *)xbox_capability_response, len);
-    return USB_OK;
-  }
 
   switch(setup->bmRequestType & USB_REQ_TYPE_RESERVED)
   {
     case USB_REQ_TYPE_CLASS:
     case USB_REQ_TYPE_VENDOR:
+#ifdef USB_UPSTREAM_ATTACH_NO_PROXY_TEST
+      usbd_ctrl_unsupport(pudev);
+      return USB_FAIL;
+#else
       return queue_control_request(udev, setup);
+#endif
     /* standard request */
     case USB_REQ_TYPE_STANDARD:
       switch(setup->bRequest)
       {
         case USB_STD_REQ_GET_DESCRIPTOR:
-          if(setup->wValue >> 8 == HID_REPORT_DESC)
+          if((setup->wValue >> 8) == USB_DESCIPTOR_TYPE_STRING &&
+             (uint8_t)setup->wValue == USB_WINUSB_OS_STRING)
+          {
+            if(!xbox_os_string_known || xbox_os_string_length == 0)
+            {
+              usbd_ctrl_unsupport(pudev);
+              return USB_FAIL;
+            }
+            len = MIN(xbox_os_string_length, setup->wLength);
+            usbd_ctrl_send(pudev, xbox_os_string, len);
+            return USB_OK;
+          }
+          else if((setup->wValue >> 8) == USB_DESCIPTOR_TYPE_DEVICE_QUALIFIER)
+          {
+            if(!xbox_device_qualifier_known)
+            {
+              diagnostic_log_event("QUAL_UNKNOWN", setup->wValue,
+                                   xbox_control_state, setup->wLength);
+              diagnostic_log_event("QUAL_IN_STALL", setup->bRequest,
+                                   setup->wValue, setup->wIndex);
+              usbd_set_stall(pudev, 0x80);
+              return USB_FAIL;
+            }
+            if(xbox_device_qualifier_length == 0)
+            {
+              diagnostic_log_event("QUAL_IN_STALL", setup->bRequest,
+                                   setup->wValue, setup->wIndex);
+              usbd_set_stall(pudev, 0x80);
+              return USB_FAIL;
+            }
+            len = MIN(xbox_device_qualifier_length, setup->wLength);
+            usbd_ctrl_send(pudev, xbox_device_qualifier, len);
+            return USB_OK;
+          }
+          else if((setup->wValue >> 8) == USB_DESCIPTOR_TYPE_OTHER_SPEED)
+          {
+            if(!xbox_device_qualifier_known ||
+               xbox_device_qualifier_length == 0)
+            {
+              diagnostic_log_event("OTHER_IN_STALL", setup->bRequest,
+                                   setup->wValue, setup->wIndex);
+              usbd_set_stall(pudev, 0x80);
+              return USB_FAIL;
+            }
+            config_descriptor =
+              custom_hid_desc_handler.get_device_configuration();
+            if(config_descriptor == NULL ||
+               config_descriptor->descriptor == NULL ||
+               config_descriptor->length !=
+                 sizeof(xbox_other_speed_configuration))
+            {
+              usbd_ctrl_unsupport(pudev);
+              return USB_FAIL;
+            }
+            memcpy(xbox_other_speed_configuration,
+                   config_descriptor->descriptor,
+                   sizeof(xbox_other_speed_configuration));
+            xbox_other_speed_configuration[1] =
+              USB_DESCIPTOR_TYPE_OTHER_SPEED;
+            len = MIN(sizeof(xbox_other_speed_configuration),
+                      setup->wLength);
+            usbd_ctrl_send(pudev, xbox_other_speed_configuration, len);
+            return USB_OK;
+          }
+          else if(setup->wValue >> 8 == HID_REPORT_DESC)
           {
             len = MIN(USBD_CUSHID_SIZ_REPORT_DESC, setup->wLength);
             buf = (uint8_t *)g_usbd_custom_hid_report;
@@ -287,6 +353,8 @@ static usb_sts_type class_ept0_tx_handler(void *udev)
 {
   usb_sts_type status = USB_OK;
 
+  (void)udev;
+
   /* ...user code... */
 
   return status;
@@ -336,6 +404,7 @@ static usb_sts_type class_in_handler(void *udev, uint8_t ept_num)
   if(ept_num == (USBD_CUSTOM_HID_IN_EPT & 0x7F))
   {
     pcshid->send_state = 0;
+    xbox_upstream_session_active = 1;
   }
   else if(ept_num == (USBD_XBOX_AUDIO_IN_EPT & 0x7F))
   {
@@ -437,10 +506,18 @@ static usb_sts_type class_event_handler(void *udev, usbd_event_type event)
   usbd_core_type *pudev = (usbd_core_type *)udev;
   custom_hid_type *pcshid = (custom_hid_type *)pudev->class_handler->pdata;
 
+  if(event != USBD_INISOINCOM_EVENT && event != USBD_OUTISOINCOM_EVENT)
+  {
+    diagnostic_trace_event("UP_EVENT", event, pudev->conn_state,
+                           pudev->dev_config);
+  }
+
   switch(event)
   {
     case USBD_RESET_EVENT:
 
+      xbox_upstream_reset_seen = 1;
+      xbox_upstream_session_active = 0;
       xbox_control_state = XBOX_CONTROL_IDLE;
       xbox_output_length = 0;
       xbox_audio_head = 0;
@@ -453,10 +530,13 @@ static usb_sts_type class_event_handler(void *udev, usbd_event_type event)
       break;
     case USBD_SUSPEND_EVENT:
 
+      xbox_upstream_session_active = 0;
+
       /* ...user code... */
 
       break;
     case USBD_WAKEUP_EVENT:
+      xbox_upstream_wakeup_pending = 1;
       /* ...user code... */
 
       break;
@@ -472,7 +552,7 @@ static usb_sts_type class_event_handler(void *udev, usbd_event_type event)
       if(pcshid->alt_setting[1] == 1)
       {
         otg_eptin_type *audio_in = USB_INEPT(
-          pudev->usb_reg, USBD_XBOX_AUDIO_IN_EPT & 0x7F);
+          pudev->usb_reg, (USBD_XBOX_AUDIO_IN_EPT & 0x7F));
         uint32_t frame = OTG_DEVICE(pudev->usb_reg)->dsts_bit.soffn;
 
         if((frame & 0x1U) == audio_in->diepctl_bit.dpid)
@@ -498,6 +578,9 @@ static usb_sts_type queue_control_request(void *udev, usb_setup_type *setup)
   if(setup == NULL || setup->wLength > sizeof(xbox_control_buffer) ||
      xbox_control_state != XBOX_CONTROL_IDLE)
   {
+    diagnostic_log_event("CTRL_REJECT", xbox_control_state,
+                         setup != NULL ? setup->bRequest : 0xFF,
+                         setup != NULL ? setup->wValue : 0);
     usbd_ctrl_unsupport(pudev);
     return USB_FAIL;
   }
@@ -535,6 +618,83 @@ uint8_t custom_hid_control_request_take(usb_setup_type *setup,
   return 1;
 }
 
+void custom_hid_device_qualifier_set(const uint8_t *data, uint16_t length,
+                                     uint8_t supported)
+{
+  xbox_device_qualifier_known = 1;
+  xbox_device_qualifier_length = 0;
+  if(supported && data != NULL && length == sizeof(xbox_device_qualifier) &&
+     data[0] == sizeof(xbox_device_qualifier) &&
+     data[1] == USB_DESCIPTOR_TYPE_DEVICE_QUALIFIER)
+  {
+    memcpy(xbox_device_qualifier, data, length);
+    xbox_device_qualifier_length = (uint8_t)length;
+  }
+  else
+  {
+    diagnostic_log_event("QUAL_STALL", supported, length, 0);
+  }
+}
+
+void custom_hid_os_string_set(const uint8_t *data, uint16_t length,
+                              uint8_t supported)
+{
+  xbox_os_string_known = 1;
+  xbox_os_string_length = 0;
+  if(supported && data != NULL && length >= 2 &&
+     length <= sizeof(xbox_os_string) && data[0] == length &&
+     data[1] == USB_DESCIPTOR_TYPE_STRING)
+  {
+    memcpy(xbox_os_string, data, length);
+    xbox_os_string_length = (uint8_t)length;
+  }
+  diagnostic_log_event("OS_STRING", supported,
+                       xbox_os_string_length,
+                       xbox_os_string_length >= 4 ?
+                         ((uint32_t)xbox_os_string[0] << 24) |
+                         ((uint32_t)xbox_os_string[1] << 16) |
+                         ((uint32_t)xbox_os_string[2] << 8) |
+                         xbox_os_string[3] : 0);
+}
+
+void custom_hid_device_qualifier_clear(void)
+{
+  xbox_device_qualifier_known = 0;
+  xbox_device_qualifier_length = 0;
+  xbox_os_string_known = 0;
+  xbox_os_string_length = 0;
+}
+
+void custom_hid_upstream_reset_clear(void)
+{
+  xbox_upstream_reset_seen = 0;
+}
+
+uint8_t custom_hid_upstream_reset_seen(void)
+{
+  return xbox_upstream_reset_seen;
+}
+
+uint8_t custom_hid_upstream_session_active(void)
+{
+  return xbox_upstream_session_active;
+}
+
+uint8_t custom_hid_upstream_wakeup_take(void)
+{
+  uint32_t interrupt_state = __get_PRIMASK();
+  uint8_t pending;
+
+  __disable_irq();
+  pending = xbox_upstream_wakeup_pending;
+  xbox_upstream_wakeup_pending = 0;
+  if(interrupt_state == 0)
+  {
+    __enable_irq();
+  }
+  return pending;
+}
+
 void custom_hid_control_complete(void *udev, const uint8_t *data,
                                  uint16_t length, uint8_t success)
 {
@@ -546,6 +706,8 @@ void custom_hid_control_complete(void *udev, const uint8_t *data,
   }
 
   xbox_control_state = XBOX_CONTROL_IDLE;
+  diagnostic_trace_event("CTRL_DONE", xbox_control_setup.bRequest,
+                       length, success);
   if(!success)
   {
     usbd_ctrl_unsupport(pudev);
@@ -553,11 +715,13 @@ void custom_hid_control_complete(void *udev, const uint8_t *data,
   else if((xbox_control_setup.bmRequestType & 0x80) != 0 &&
           xbox_control_setup.wLength != 0)
   {
+    xbox_upstream_session_active = 1;
     length = MIN(length, xbox_control_setup.wLength);
     usbd_ctrl_send(pudev, (uint8_t *)data, length);
   }
   else
   {
+    xbox_upstream_session_active = 1;
     usbd_ctrl_send_status(pudev);
   }
 }

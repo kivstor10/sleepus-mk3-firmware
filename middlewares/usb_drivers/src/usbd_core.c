@@ -26,6 +26,7 @@
 #include "usb_core.h"
 #include "usbd_core.h"
 #include "usbd_sdr.h"
+#include "diagnostic_log.h"
 #include "hardware.h"
 
 /** @addtogroup AT32F435_437_middlewares_usbd_drivers
@@ -145,10 +146,13 @@ void usbd_core_out_handler(usbd_core_type *udev, uint8_t ept_addr)
   */
 void usbd_core_setup_handler(usbd_core_type *udev, uint8_t ept_num)
 {
-  toggle_status_led();
-
   /* setup parse */
   usbd_setup_request_parse(&udev->setup, udev->setup_buffer);
+  diagnostic_trace_event("UP_SETUP",
+                       ((uint32_t)udev->setup.bmRequestType << 24) |
+                       ((uint32_t)udev->setup.bRequest << 16) |
+                       udev->setup.wValue,
+                       udev->setup.wIndex, udev->setup.wLength);
 
   /* set ept0 status */
   udev->ept0_sts = USB_EPT0_SETUP;
@@ -186,6 +190,9 @@ void usbd_ctrl_send(usbd_core_type *udev, uint8_t *buffer, uint16_t len)
 {
   usb_ept_info *ept_info = &udev->ept_in[0];
 
+  diagnostic_trace_event("EP0_DATA", udev->setup.bRequest,
+                       udev->setup.wValue, len);
+
   ept_info->ept0_slen = len;
   ept_info->rem0_len = len;
   udev->ept0_sts = USB_EPT0_DATA_IN;
@@ -219,6 +226,8 @@ void usbd_ctrl_recv(usbd_core_type *udev, uint8_t *buffer, uint16_t len)
   */
 void usbd_ctrl_send_status(usbd_core_type *udev)
 {
+  diagnostic_trace_event("EP0_STATUS", udev->setup.bRequest,
+                       udev->setup.wValue, 0);
   udev->ept0_sts = USB_EPT0_STATUS_IN;
 
   usbd_ept_send(udev, 0, 0, 0);
@@ -294,6 +303,8 @@ void usbd_set_stall(usbd_core_type *udev, uint8_t ept_addr)
   */
 void usbd_ctrl_unsupport(usbd_core_type *udev)
 {
+  diagnostic_log_event("EP0_STALL", udev->setup.bRequest,
+                       udev->setup.wValue, udev->setup.wIndex);
   /* return stall status */
   usbd_set_stall(udev, 0x00);
   usbd_set_stall(udev, 0x80);
@@ -409,6 +420,10 @@ void usbd_connect(usbd_core_type *udev)
 void usbd_disconnect(usbd_core_type *udev)
 {
   usb_disconnect(udev->usb_reg);
+  udev->conn_state = USB_CONN_STATE_DEFAULT;
+  udev->old_conn_state = USB_CONN_STATE_DEFAULT;
+  udev->dev_config = 0;
+  udev->device_addr = 0;
 }
 
 /**

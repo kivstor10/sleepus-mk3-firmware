@@ -106,6 +106,15 @@ uint8_t custom_hid_control_request_take(usb_setup_type *setup,
                                         uint8_t *data, uint16_t capacity);
 void custom_hid_control_complete(void *udev, const uint8_t *data,
                                  uint16_t length, uint8_t success);
+void custom_hid_device_qualifier_set(const uint8_t *data, uint16_t length,
+                                     uint8_t supported);
+void custom_hid_os_string_set(const uint8_t *data, uint16_t length,
+                              uint8_t supported);
+void custom_hid_device_qualifier_clear(void);
+void custom_hid_upstream_reset_clear(void);
+uint8_t custom_hid_upstream_reset_seen(void);
+uint8_t custom_hid_upstream_session_active(void);
+uint8_t custom_hid_upstream_wakeup_take(void);
 uint8_t custom_hid_output_packet_take(void *udev, uint8_t *data,
                                       uint16_t capacity, uint16_t *length);
 uint8_t custom_hid_audio_output_take(void *udev, uint8_t *data,

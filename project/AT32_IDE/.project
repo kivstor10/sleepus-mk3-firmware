@@ -67,6 +67,11 @@
             <locationURI>PARENT-2-PROJECT_LOC/libraries/drivers/src/at32f435_437_gpio.c</locationURI>
         </link>
         <link>
+            <name>firmware/at32f435_437_i2c.c</name>
+            <type>1</type>
+            <locationURI>PARENT-2-PROJECT_LOC/libraries/drivers/src/at32f435_437_i2c.c</locationURI>
+        </link>
+        <link>
             <name>firmware/at32f435_437_pwc.c</name>
             <type>1</type>
             <locationURI>PARENT-2-PROJECT_LOC/libraries/drivers/src/at32f435_437_pwc.c</locationURI>
