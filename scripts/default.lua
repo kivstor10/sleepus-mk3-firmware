@@ -3,7 +3,8 @@ local attackers = {
 	"GLAZ", "FUZE", "BLITZ", "IQ", "BUCK", "BLACKBEARD", "CAPITAO",
 	"HIBANA", "JACKAL", "YING", "ZOFIA", "DOKKAEBI", "LION", "FINKA",
 	"MAVERICK", "NOMAD", "GRIDLOCK", "NOKK", "AMARU", "KALI", "IANA",
-	"ACE", "ZERO", "FLORES", "OSA", "SENS", "GRIM"
+	"ACE", "ZERO", "FLORES", "OSA", "SENS", "GRIM", "STRIKER",
+	"BRAVA", "RAM", "DEIMOS", "RAUORA", "SNAKE"
 }
 
 local defenders = {
@@ -12,7 +13,7 @@ local defenders = {
 	"ECHO", "MIRA", "LESION", "ELA", "VIGIL", "MAESTRO", "ALIBI",
 	"CLASH", "KAID", "MOZZIE", "WARDEN", "GOYO", "WAMAI", "ORYX",
 	"MELUSI", "ARUNI", "THUNDERBIRD", "THORN", "AZAMI", "SOLIS",
-	"FENRIR", "TUBARAO", "SENTRY"
+	"FENRIR", "TUBARAO", "SENTRY", "SKOPOS", "DENARI", "NOOR"
 }
 
 local fields = {
@@ -43,7 +44,8 @@ for _, button in ipairs(quick_select_buttons) do
 	if type(binding) == "number" then
 		local side = math.floor(binding / 100)
 		local operator = binding % 100
-		if (side == 1 or side == 2) and operator >= 1 and operator <= 36 then
+		local operators = side == 1 and attackers or defenders
+		if (side == 1 or side == 2) and operator >= 1 and operator <= #operators then
 			storage.write(quick_binding_key(side, button), operator)
 		end
 		storage.write(button[2], nil)
