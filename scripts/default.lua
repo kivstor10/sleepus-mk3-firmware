@@ -418,8 +418,8 @@ local function draw_ui()
 			display.draw_text(0, 24, "LEFT: BACK")
 		elseif state.config_status == 5 then
 			display.draw_text(0, 0, "RESET ALL PROFILES?")
-			display.draw_text(0, 8, "UP: CONFIRM")
-			display.draw_text(0, 16, "DOWN: CANCEL")
+			display.draw_text(0, 8, "SELECT: CONFIRM")
+			display.draw_text(0, 16, "BACK: CANCEL")
 		else
 			local config_errors = {
 				"UNKNOWN ERROR", "CONFIG NOT READY", "USB NOT READY",
@@ -739,14 +739,14 @@ local function update_menu()
 				draw_ui()
 			end
 		elseif state.config_status == 5 then
-			if next then
+			if decrease then
 				storage.reset_loadouts()
 				storage.commit()
 				loadout_profiles = {{}, {}}
 				load_loadout_profile()
 				state.config_status = 0
 				draw_ui()
-			elseif previous then
+			elseif increase then
 				state.config_status = 0
 				draw_ui()
 			end
