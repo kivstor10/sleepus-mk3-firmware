@@ -5,15 +5,20 @@
 #include "lauxlib.h"
 
 #define STORAGE_MAGIC          0x53505652UL
-#define STORAGE_VERSION        4U
-#define STORAGE_LEGACY_VERSION 3U
+#define STORAGE_VERSION        5U
+#define STORAGE_LEGACY_VERSION 4U
+#define STORAGE_OLDER_VERSION  3U
 #define STORAGE_KEY_BYTES      32U
 #define STORAGE_STRING_BYTES   64U
 #define STORAGE_SIDE_COUNT      2U
-#define STORAGE_OPERATOR_COUNT 36U
+#define STORAGE_OPERATOR_COUNT 39U
+#define STORAGE_LEGACY_OPERATOR_COUNT 36U
+#define STORAGE_LEGACY_ENTRY_COUNT 32U
 #define STORAGE_WEAPON_COUNT    2U
 #define STORAGE_LOADOUT_COUNT  (STORAGE_SIDE_COUNT * STORAGE_OPERATOR_COUNT * \
                                 STORAGE_WEAPON_COUNT)
+#define STORAGE_LEGACY_LOADOUT_COUNT \
+  (STORAGE_SIDE_COUNT * STORAGE_LEGACY_OPERATOR_COUNT * STORAGE_WEAPON_COUNT)
 #define LOADOUT_VALID_MASK      0x01U
 #define LOADOUT_FIRST_BULLET    0x02U
 #define LOADOUT_RAPID_FIRE      0x04U
@@ -65,6 +70,17 @@ typedef struct
   storage_entry_t entries[LUA_SANDBOX_MAX_STORAGE_ENTRIES];
 } storage_image_t;
 
+typedef struct
+{
+  uint32_t magic;
+  uint16_t version;
+  uint16_t entry_count;
+  uint32_t generation;
+  uint32_t crc32;
+  storage_loadout_t loadouts[STORAGE_LEGACY_LOADOUT_COUNT];
+  storage_entry_t entries[STORAGE_LEGACY_ENTRY_COUNT];
+} storage_legacy_image_t;
+
 typedef char storage_image_must_fit[
   sizeof(storage_image_t) <= LUA_SANDBOX_STORAGE_IMAGE_BYTES ? 1 : -1];
 
@@ -87,6 +103,7 @@ typedef struct
 static storage_context_t storage;
 static aligned_flash_buffer_t flash_buffer;
 static storage_image_t storage_scratch[2];
+static storage_legacy_image_t legacy_storage_scratch[2];
 
 static uint32_t crc32_calculate(const void *data, size_t length)
 {
@@ -167,6 +184,23 @@ static uint8_t image_valid(storage_image_t *image)
   return image_valid_version(image, STORAGE_VERSION);
 }
 
+static uint8_t legacy_image_valid(storage_legacy_image_t *image,
+                                  uint16_t version)
+{
+  uint32_t expected;
+  uint32_t actual;
+  if(image->magic != STORAGE_MAGIC || image->version != version ||
+     image->entry_count > LUA_SANDBOX_MAX_STORAGE_ENTRIES)
+  {
+    return 0;
+  }
+  expected = image->crc32;
+  image->crc32 = 0;
+  actual = crc32_calculate(image, sizeof(*image));
+  image->crc32 = expected;
+  return actual == expected;
+}
+
 static uint8_t read_slot(uint8_t slot, storage_image_t *image)
 {
   if(storage.port.flash_read == 0 ||
@@ -179,7 +213,8 @@ static uint8_t read_slot(uint8_t slot, storage_image_t *image)
   return image_valid(image);
 }
 
-static uint8_t read_legacy_slot(uint8_t slot, storage_image_t *image)
+static uint8_t read_legacy_slot(uint8_t slot, storage_legacy_image_t *image,
+                                uint16_t version)
 {
   if(storage.port.flash_read == 0 ||
      !storage.port.flash_read(slot, 0, flash_buffer.bytes,
@@ -188,7 +223,7 @@ static uint8_t read_legacy_slot(uint8_t slot, storage_image_t *image)
     return 0;
   }
   memcpy(image, flash_buffer.bytes, sizeof(*image));
-  return image_valid_version(image, STORAGE_LEGACY_VERSION);
+  return legacy_image_valid(image, version);
 }
 
 static storage_entry_t *find_entry(const char *key)
@@ -434,12 +469,21 @@ static int binding_storage_commit(lua_State *state)
   return 1;
 }
 
+static int binding_storage_reset_loadouts(lua_State *state)
+{
+  memset(storage.image.loadouts, 0, sizeof(storage.image.loadouts));
+  storage.dirty = 1;
+  lua_pushboolean(state, 1);
+  return 1;
+}
+
 const luaL_Reg lua_storage_bindings[] =
 {
   {"read", binding_storage_read},
   {"write", binding_storage_write},
   {"read_loadout", binding_storage_read_loadout},
   {"write_loadout", binding_storage_write_loadout},
+  {"reset_loadouts", binding_storage_reset_loadouts},
   {"commit", binding_storage_commit},
   {0, 0}
 };
@@ -469,22 +513,39 @@ void lua_storage_init(const lua_sandbox_port_t *port)
   }
   else
   {
-    valid_a = read_legacy_slot(0, &storage_scratch[0]);
-    valid_b = read_legacy_slot(1, &storage_scratch[1]);
+    storage_legacy_image_t *legacy;
+    uint16_t legacy_version = STORAGE_LEGACY_VERSION;
+    valid_a = read_legacy_slot(0, &legacy_storage_scratch[0], legacy_version);
+    valid_b = read_legacy_slot(1, &legacy_storage_scratch[1], legacy_version);
+    if(!valid_a && !valid_b)
+    {
+      legacy_version = STORAGE_OLDER_VERSION;
+      valid_a = read_legacy_slot(0, &legacy_storage_scratch[0], legacy_version);
+      valid_b = read_legacy_slot(1, &legacy_storage_scratch[1], legacy_version);
+    }
     if(valid_a || valid_b)
     {
-      storage.image = valid_a && (!valid_b ||
-        (int32_t)(storage_scratch[0].generation -
-                  storage_scratch[1].generation) > 0) ?
-        storage_scratch[0] : storage_scratch[1];
+      legacy = valid_a && (!valid_b ||
+        (int32_t)(legacy_storage_scratch[0].generation -
+                  legacy_storage_scratch[1].generation) > 0) ?
+        &legacy_storage_scratch[0] : &legacy_storage_scratch[1];
+      memset(&storage.image, 0, sizeof(storage.image));
+      storage.image.magic = legacy->magic;
+      storage.image.entry_count = legacy->entry_count;
+      storage.image.generation = legacy->generation;
+      memcpy(storage.image.loadouts, legacy->loadouts,
+             sizeof(legacy->loadouts));
+            memcpy(storage.image.entries, legacy->entries,
+              sizeof(storage.image.entries));
       storage.active_slot = valid_a && (!valid_b ||
-        (int32_t)(storage_scratch[0].generation -
-                  storage_scratch[1].generation) > 0) ? 0 : 1;
+        (int32_t)(legacy_storage_scratch[0].generation -
+                  legacy_storage_scratch[1].generation) > 0) ? 0 : 1;
       storage.image.version = STORAGE_VERSION;
-      for(index = 0; index < STORAGE_LOADOUT_COUNT; index++)
+      for(index = 0; index < STORAGE_LEGACY_LOADOUT_COUNT; index++)
       {
         storage_loadout_t *loadout = &storage.image.loadouts[index];
-        if((loadout->rapid_fire_percent & LOADOUT_LEGACY_RAPID_FIRE) != 0U)
+        if(legacy_version == STORAGE_OLDER_VERSION &&
+           (loadout->rapid_fire_percent & LOADOUT_LEGACY_RAPID_FIRE) != 0U)
         {
           loadout->valid |= LOADOUT_RAPID_FIRE;
         }

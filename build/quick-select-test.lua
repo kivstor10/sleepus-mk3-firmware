@@ -47,6 +47,10 @@ function storage.write_loadout(side, operator, weapon, ...)
   loadouts[loadout_key(side, operator, weapon)] = {...}
   return true
 end
+function storage.reset_loadouts()
+  loadouts = {}
+  return true
+end
 
 dofile('scripts/default.lua')
 local function frame(controller_changes, device_changes)
@@ -230,4 +234,18 @@ frame({[controller.MENU]=100})
 assert(outputs[controller.MENU] == nil, tostring(outputs[controller.MENU]))
 frame()
 assert(outputs[controller.MENU] == nil, tostring(outputs[controller.MENU]))
+-- Reset all profiles must require confirmation and clear persisted loadouts.
+loadouts[loadout_key(1, 1, 1)] = {42, 0, 80, 12, false, false, 100}
+on_console_connected()
+frame(nil, {[device.BTN_BACK]=100}); release_all()
+frame(nil, {[device.BTN_BACK]=100}); release_all()
+frame(nil, {[device.BTN_UP]=100}); release_all()
+for _ = 1, 4 do
+  frame(nil, {[device.BTN_BACK]=100}); release_all()
+end
+assert(screen_at['6:16'] == 'RESET ALL PROFILES<', screen_at['6:16'])
+frame(nil, {[device.BTN_UP]=100}); release_all()
+assert(screen[0] == 'RESET ALL PROFILES?', screen[0])
+frame(nil, {[device.BTN_UP]=100}); release_all()
+assert(loadouts[loadout_key(1, 1, 1)] == nil)
 print('PASS: quick-select menu, selection, and binding flows')

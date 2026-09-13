@@ -316,7 +316,7 @@ end
 local function draw_config_menu()
 	local labels = {
 		"EXPORT", "IMPORT", "QUICK SELECT " .. on_off(state.quick_select_enabled),
-		"SAB " .. on_off(state.sab_enabled)
+		"SAB " .. on_off(state.sab_enabled), "RESET ALL PROFILES"
 	}
 	local first = math.floor((state.config_action - 1) / 3) * 3 + 1
 	display.draw_text(0, 0, "CONFIG")
@@ -416,6 +416,10 @@ local function draw_ui()
 			display.draw_text(0, 8, "REMOVE USB STICK")
 			display.draw_text(0, 16, "CONNECT CONTROLLER")
 			display.draw_text(0, 24, "LEFT: BACK")
+		elseif state.config_status == 5 then
+			display.draw_text(0, 0, "RESET ALL PROFILES?")
+			display.draw_text(0, 8, "UP: CONFIRM")
+			display.draw_text(0, 16, "DOWN: CANCEL")
 		else
 			local config_errors = {
 				"UNKNOWN ERROR", "CONFIG NOT READY", "USB NOT READY",
@@ -696,7 +700,7 @@ local function update_menu()
 
 	if state.menu_level == 3 then
 		local status = device.config_status()
-		if status ~= state.config_status then
+		if state.config_status ~= 5 and status ~= state.config_status then
 			state.config_status = status
 			if status == 3 and state.config_action == 2 then
 				loadout_profiles = {{}, {}}
@@ -709,11 +713,14 @@ local function update_menu()
 		if state.config_status == 0 then
 			if decrease or increase then
 				state.config_action = state.config_action + (increase and 1 or -1)
-				if state.config_action < 1 then state.config_action = 4 end
-				if state.config_action > 4 then state.config_action = 1 end
+				if state.config_action < 1 then state.config_action = 5 end
+				if state.config_action > 5 then state.config_action = 1 end
 				draw_ui()
 			elseif next then
-				if state.config_action == 4 then
+				if state.config_action == 5 then
+					state.config_status = 5
+					draw_ui()
+				elseif state.config_action == 4 then
 					state.sab_enabled = not state.sab_enabled
 					storage.write("sab_enabled", state.sab_enabled)
 					storage.commit()
@@ -729,6 +736,18 @@ local function update_menu()
 				end
 			elseif previous then
 				state.menu_level = 0
+				draw_ui()
+			end
+		elseif state.config_status == 5 then
+			if next then
+				storage.reset_loadouts()
+				storage.commit()
+				loadout_profiles = {{}, {}}
+				load_loadout_profile()
+				state.config_status = 0
+				draw_ui()
+			elseif previous then
+				state.config_status = 0
 				draw_ui()
 			end
 		elseif state.config_status == 1 and previous then
