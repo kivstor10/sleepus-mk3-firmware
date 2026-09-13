@@ -741,6 +741,12 @@ local function update_menu()
 		elseif state.config_status == 5 then
 			if decrease then
 				storage.reset_loadouts()
+				for _, button in ipairs(quick_select_buttons) do
+					storage.write(quick_binding_key(1, button), nil)
+					storage.write(quick_binding_key(2, button), nil)
+				end
+				state.quick_select_enabled = false
+				storage.write("quick_select", false)
 				storage.commit()
 				loadout_profiles = {{}, {}}
 				load_loadout_profile()

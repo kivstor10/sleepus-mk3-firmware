@@ -236,6 +236,9 @@ frame()
 assert(outputs[controller.MENU] == nil, tostring(outputs[controller.MENU]))
 -- Reset all profiles must require confirmation and clear persisted loadouts.
 loadouts[loadout_key(1, 1, 1)] = {42, 0, 80, 12, false, false, 100}
+saved.quick_select = true
+saved.qs1_x = 5
+saved.qs2_x = 22
 on_console_connected()
 frame(nil, {[device.BTN_BACK]=100}); release_all()
 frame(nil, {[device.BTN_BACK]=100}); release_all()
@@ -250,4 +253,7 @@ assert(screen[8] == 'SELECT: CONFIRM', screen[8])
 assert(screen[16] == 'BACK: CANCEL', screen[16])
 frame(nil, {[device.BTN_SELECT]=100}); release_all()
 assert(loadouts[loadout_key(1, 1, 1)] == nil)
+assert(saved.quick_select == false)
+assert(saved.qs1_x == nil)
+assert(saved.qs2_x == nil)
 print('PASS: quick-select menu, selection, and binding flows')
