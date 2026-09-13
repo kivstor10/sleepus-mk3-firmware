@@ -418,8 +418,8 @@ local function draw_ui()
 			display.draw_text(0, 24, "LEFT: BACK")
 		elseif state.config_status == 5 then
 			display.draw_text(0, 0, "RESET ALL PROFILES?")
-			display.draw_text(0, 8, "SELECT: CONFIRM")
-			display.draw_text(0, 16, "BACK: CANCEL")
+			display.draw_text(0, 8, "UP: CONFIRM")
+			display.draw_text(0, 16, "DOWN: CANCEL")
 		else
 			local config_errors = {
 				"UNKNOWN ERROR", "CONFIG NOT READY", "USB NOT READY",
