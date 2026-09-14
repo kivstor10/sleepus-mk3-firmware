@@ -42,6 +42,8 @@
 #define HARDWARE_IMPLEMENTATION
 #include "hardware.c"
 
+#define CONSOLE_SESSION_SETTLE_MS 1000U
+
 /* private includes ----------------------------------------------------------*/
 /* add user code begin private includes */
 
@@ -95,9 +97,11 @@ int main(void)
   uint8_t repeat_led_state = 0xFF;
   uint8_t oled_controller_connected = 0;
   uint8_t console_was_configured = 0;
+  uint8_t console_session_announced = 0;
   uint8_t oled_status_dirty = 1;
   uint8_t oled_lua_active;
   uint32_t last_controller_report = 0;
+  uint32_t console_ready_since = 0;
   uint8_t output_changed;
 
   /* add user code begin 1 */
@@ -155,23 +159,37 @@ int main(void)
     hardware_task();
     diagnostic_uart_task();
     console_is_configured = usb_device_configured();
-    if(console_is_configured && !console_was_configured)
+    current_time = get_system_tick();
+    if(console_is_configured)
     {
-      oled_clear();
-      if(lua_runtime_active())
+      if(!console_was_configured)
       {
-        lua_runtime_console_connected();
+        console_ready_since = current_time;
       }
-      else
+      if(!console_session_announced &&
+         (uint32_t)(current_time - console_ready_since) >=
+           CONSOLE_SESSION_SETTLE_MS)
       {
-        oled_status_dirty = 1;
+        oled_clear();
+        if(lua_runtime_active())
+        {
+          lua_runtime_console_connected();
+        }
+        else
+        {
+          oled_status_dirty = 1;
+        }
+        console_session_announced = 1;
       }
     }
-        else if(!console_is_configured && console_was_configured &&
-          usb_config_status() == USB_CONFIG_IDLE)
+    else
     {
-      usb_show_startup_screen();
-      set_status_led(0);
+      console_session_announced = 0;
+      if(console_was_configured && usb_config_status() == USB_CONFIG_IDLE)
+      {
+        usb_show_startup_screen();
+        set_status_led(0);
+      }
     }
     console_was_configured = console_is_configured;
     lua_runtime_task(&cached_data, get_system_tick());
