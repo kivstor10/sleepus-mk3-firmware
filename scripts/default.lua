@@ -894,7 +894,7 @@ local function apply_recoil()
 		(100 - state.deadzone), 0, 1)
 	local scale = state.movement / 100 * fade * fade
 	local vertical_scale = scale
-	if y * vertical_recoil > 0 then
+	if y * vertical_recoil >= 0 then
 		vertical_scale = 1
 	end
 	if state.horizontal ~= 0 or sab_x ~= 0 then
