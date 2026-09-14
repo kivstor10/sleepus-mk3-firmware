@@ -900,7 +900,7 @@ local function apply_recoil()
 		vertical_scale = 1
 	end
 	vertical_scale = vertical_scale *
-		(1 - (math.abs(x) / 100) ^ 2)
+		(1 - (math.abs(x) / 100) ^ 4)
 	if state.horizontal ~= 0 or sab_x ~= 0 then
 		offset_axis(controller.RX, state.horizontal * scale + sab_x)
 	end
