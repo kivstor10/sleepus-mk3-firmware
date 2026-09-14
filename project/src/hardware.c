@@ -95,6 +95,44 @@ void diagnostic_log_event(const char *event, uint32_t value_a,
   }
 }
 
+void diagnostic_log_text(const char *event, const char *text)
+{
+  char line[144];
+  char *output = line;
+  uint16_t next;
+  uint32_t interrupt_state;
+
+  output = diagnostic_append_text(output, "T=");
+  output = diagnostic_append_hex32(output, get_system_tick());
+  *output++ = ' ';
+  output = diagnostic_append_text(output, event);
+  *output++ = ' ';
+  while(*text != '\0' && output < line + sizeof(line) - 3U)
+  {
+    *output++ = *text++;
+  }
+  *output++ = '\r';
+  *output++ = '\n';
+
+  interrupt_state = __get_PRIMASK();
+  __disable_irq();
+  for(char *input = line; input < output; input++)
+  {
+    next = (uint16_t)((diagnostic_uart_head + 1U) &
+                      DIAGNOSTIC_UART_BUFFER_MASK);
+    if(next == diagnostic_uart_tail)
+    {
+      break;
+    }
+    diagnostic_uart_buffer[diagnostic_uart_head] = (uint8_t)*input;
+    diagnostic_uart_head = next;
+  }
+  if(interrupt_state == 0U)
+  {
+    __enable_irq();
+  }
+}
+
 void diagnostic_uart_task(void)
 {
   static uint32_t heartbeat_time;

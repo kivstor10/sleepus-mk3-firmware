@@ -8,6 +8,7 @@ void diagnostic_uart_init(void);
 void diagnostic_uart_task(void);
 void diagnostic_log_event(const char *event, uint32_t value_a,
                           uint32_t value_b, uint32_t value_c);
+void diagnostic_log_text(const char *event, const char *text);
 #ifdef USB_VERBOSE_DIAGNOSTICS
 #define diagnostic_trace_event diagnostic_log_event
 #else
@@ -17,6 +18,7 @@ void diagnostic_log_event(const char *event, uint32_t value_a,
 #define diagnostic_uart_init() ((void)0)
 #define diagnostic_uart_task() ((void)0)
 #define diagnostic_log_event(event, value_a, value_b, value_c) ((void)0)
+#define diagnostic_log_text(event, text) ((void)0)
 #define diagnostic_trace_event(event, value_a, value_b, value_c) ((void)0)
 #endif
 

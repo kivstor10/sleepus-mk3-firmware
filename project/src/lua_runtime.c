@@ -99,6 +99,7 @@ static uint8_t lua_runtime_run_frame(const controller_data_t *input,
                             error, sizeof(error)))
   {
     lua_failure_count++;
+    diagnostic_log_text("LUA_ERROR", error);
     diagnostic_log_event("LUA_EVENT", current_time_ms,
                          lua_failure_count, 0);
     if(lua_failure_count >= LUA_RUNTIME_MAX_FAILURES)
