@@ -23,7 +23,7 @@ static uint8_t lua_last_output_valid;
 static const lua_sandbox_budget_t input_budget =
 {
   4000U,
-  2U,
+  8U,
   100U
 };
 
