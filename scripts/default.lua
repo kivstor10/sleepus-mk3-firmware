@@ -893,11 +893,15 @@ local function apply_recoil()
 	local fade = clamp((100 - magnitude) /
 		(100 - state.deadzone), 0, 1)
 	local scale = state.movement / 100 * fade * fade
+	local vertical_scale = scale
+	if y * vertical_recoil > 0 then
+		vertical_scale = 1
+	end
 	if state.horizontal ~= 0 or sab_x ~= 0 then
 		offset_axis(controller.RX, state.horizontal * scale + sab_x)
 	end
 	if vertical_recoil ~= 0 or sab_y ~= 0 then
-		offset_axis(controller.RY, vertical_recoil * scale + sab_y)
+		offset_axis(controller.RY, vertical_recoil * vertical_scale + sab_y)
 	end
 end
 
