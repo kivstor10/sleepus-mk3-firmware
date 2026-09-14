@@ -42,7 +42,7 @@
 #define HARDWARE_IMPLEMENTATION
 #include "hardware.c"
 
-#define CONSOLE_SESSION_SETTLE_MS 5000U
+#define CONSOLE_SESSION_SETTLE_MS 3000U
 
 /* private includes ----------------------------------------------------------*/
 /* add user code begin private includes */
