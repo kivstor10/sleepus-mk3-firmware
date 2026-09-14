@@ -941,11 +941,17 @@ void wk_usb_app_task(void)
 
 uint8_t usb_device_configured(void)
 {
+  uint8_t upstream_session_active = custom_hid_upstream_session_active();
+  uint8_t upstream_suspended =
+    usb_suspend_status_get(otg_core_struct_fs2.dev.usb_reg);
   uint8_t upstream_session_valid = console_device_connected &&
-    !upstream_retry_disconnected && custom_hid_upstream_session_active() &&
+    !upstream_retry_disconnected && upstream_session_active &&
     usbd_connect_state_get(&otg_core_struct_fs2.dev) ==
       USB_CONN_STATE_CONFIGURED &&
-    usb_suspend_status_get(otg_core_struct_fs2.dev.usb_reg) == 0;
+    upstream_suspended == 0;
+#ifdef USB_DIAGNOSTICS
+  static uint8_t previous_session_ready = 0xFF;
+#endif
 
   if(!upstream_session_valid)
   {
@@ -955,6 +961,18 @@ uint8_t usb_device_configured(void)
   {
     console_session_ready = 1;
   }
+#ifdef USB_DIAGNOSTICS
+  if(console_session_ready != previous_session_ready)
+  {
+    diagnostic_log_event("UP_READY", console_session_ready,
+      upstream_session_valid,
+      (uint32_t)usbd_connect_state_get(&otg_core_struct_fs2.dev) |
+      ((uint32_t)upstream_suspended << 8) |
+      ((uint32_t)console_device_connected << 16) |
+      ((uint32_t)upstream_session_active << 17));
+    previous_session_ready = console_session_ready;
+  }
+#endif
   return console_session_ready;
 }
 

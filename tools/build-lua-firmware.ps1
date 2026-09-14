@@ -1,6 +1,6 @@
 param(
   [string]$Script = "scripts/default.lua",
-  [string]$Output = "build/Sleepus-MK3-Latest.hex",
+  [string]$Output = "build/Sleepus-MK3-Test.hex",
   [switch]$UsbDiagnostics,
   [switch]$UsbVerboseDiagnostics,
   [switch]$RumbleOledTrace
@@ -17,7 +17,6 @@ $temporaryDirectory = Join-Path $root "build\lua-firmware\temp"
 $firmwareElf = Join-Path $root "build\lua-firmware\Sleepus-MK3-Lua-Runtime.elf"
 $firmwareHex = Join-Path $root "build\lua-firmware\Sleepus-MK3-Lua-Runtime.hex"
 $mapFile = Join-Path $root "build\lua-firmware\Sleepus-MK3-Lua-Runtime.map"
-$releaseBinary = Join-Path $root "build\Sleepus-MK3.bin"
 
 foreach($tool in @($gcc, $objcopy, $size))
 {
@@ -148,6 +147,7 @@ if($LASTEXITCODE -ne 0)
 
 $scriptPath = Join-Path $root $Script
 $outputPath = Join-Path $root $Output
+$releaseBinary = [IO.Path]::ChangeExtension($outputPath, ".bin")
 $archivePath = Join-Path $root "build\lua-firmware\default.sleepus-pack"
 & node (Join-Path $root "tools\package-lua.js") --firmware $firmwareHex `
   --script $scriptPath --archive $archivePath --output $outputPath

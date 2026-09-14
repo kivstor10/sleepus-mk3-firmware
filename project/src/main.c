@@ -180,6 +180,8 @@ int main(void)
           oled_status_dirty = 1;
         }
         console_session_announced = 1;
+        diagnostic_log_event("MENU_SHOW", current_time,
+                             console_ready_since, 0);
       }
     }
     else
@@ -189,6 +191,7 @@ int main(void)
       {
         usb_show_startup_screen();
         set_status_led(0);
+        diagnostic_log_event("MENU_SPLASH", current_time, 0, 0);
       }
     }
     console_was_configured = console_is_configured;
