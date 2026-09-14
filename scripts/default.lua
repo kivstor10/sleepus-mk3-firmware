@@ -895,7 +895,7 @@ local function apply_recoil()
 	local scale = state.movement / 100 * fade * fade
 	local vertical_scale = scale
 	if y * vertical_recoil > 0 then
-		vertical_scale = 0
+		vertical_scale = 1 - math.abs(y) / 100
 	elseif y == 0 then
 		vertical_scale = 1
 	end
