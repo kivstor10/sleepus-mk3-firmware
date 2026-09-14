@@ -944,7 +944,8 @@ uint8_t usb_device_configured(void)
   uint8_t upstream_session_valid = console_device_connected &&
     !upstream_retry_disconnected && custom_hid_upstream_session_active() &&
     usbd_connect_state_get(&otg_core_struct_fs2.dev) ==
-      USB_CONN_STATE_CONFIGURED;
+      USB_CONN_STATE_CONFIGURED &&
+    usb_suspend_status_get(otg_core_struct_fs2.dev.usb_reg) == 0;
 
   if(!upstream_session_valid)
   {
