@@ -13,6 +13,45 @@
 #define BUTTON_DPAD_DOWN   0x0200U
 #define BUTTON_LS          0x4000U
 #define BUTTON_RS          0x8000U
+#define TEST_STORAGE_MAGIC 0x53505652UL
+#define TEST_STORAGE_LEGACY_LOADOUTS (2U * 36U * 2U)
+#define TEST_STORAGE_ENTRIES 32U
+
+typedef struct
+{
+  char key[32];
+  uint8_t type;
+  uint8_t reserved;
+  uint16_t value_length;
+  union
+  {
+    uint8_t boolean_value;
+    int32_t integer_value;
+    float float_value;
+    char string_value[64];
+  } value;
+} test_storage_entry_t;
+
+typedef struct
+{
+  int8_t vertical;
+  int8_t horizontal;
+  uint8_t movement;
+  uint8_t deadzone;
+  uint8_t valid;
+  uint8_t rapid_fire_percent;
+} test_storage_loadout_t;
+
+typedef struct
+{
+  uint32_t magic;
+  uint16_t version;
+  uint16_t entry_count;
+  uint32_t generation;
+  uint32_t crc32;
+  test_storage_loadout_t loadouts[TEST_STORAGE_LEGACY_LOADOUTS];
+  test_storage_entry_t entries[TEST_STORAGE_ENTRIES];
+} test_storage_legacy_image_t;
 
 static uint64_t test_memory[TEST_ARENA_BYTES / sizeof(uint64_t)];
 static lua_arena_t test_arena;
@@ -23,6 +62,24 @@ static char mock_display_lines[4][22];
 static uint8_t mock_flash[2][TEST_FLASH_BYTES];
 static uint32_t mock_flash_erase_count;
 static uint32_t mock_flash_program_count;
+
+static uint32_t test_crc32(const void *data, size_t length)
+{
+  const uint8_t *bytes = (const uint8_t *)data;
+  uint32_t crc = 0xFFFFFFFFUL;
+  size_t index;
+  uint8_t bit;
+  for(index = 0; index < length; index++)
+  {
+    crc ^= bytes[index];
+    for(bit = 0; bit < 8; bit++)
+    {
+      crc = (crc >> 1) ^ (0xEDB88320UL &
+            (uint32_t)-(int32_t)(crc & 1U));
+    }
+  }
+  return ~crc;
+}
 
 static uint32_t mock_millis(void)
 {
@@ -933,7 +990,77 @@ static uint8_t test_config_blob_round_trip(void)
     run_persistence_script(verify_first, BUTTON_A, 0);
 }
 
-int main(void)
+static uint8_t test_legacy_config_import(void)
+{
+  static uint8_t blob[LUA_SANDBOX_STORAGE_IMAGE_BYTES];
+  test_storage_legacy_image_t legacy;
+  const char *verify_v4 =
+    "function on_input() "
+    "local v,h,m,d,r,f,p=storage.read_loadout(1,1,1) "
+    "if v==27 and h==-8 and m==74 and d==14 and not r and f and p==77 "
+    "then controller.set_val(controller.A,100) end end";
+  const char *verify_v3 =
+    "function on_input() "
+    "local v,h,m,d,r,f,p=storage.read_loadout(1,1,1) "
+    "if v==28 and h==-7 and m==75 and d==15 and r and f and p==88 "
+    "then controller.set_val(controller.A,100) end end";
+
+  if(sizeof(legacy) > sizeof(blob))
+  {
+    return 0;
+  }
+  memset(mock_flash, 0xFF, sizeof(mock_flash));
+  if(!run_persistence_script("function on_input() end", 0, 0))
+  {
+    return 0;
+  }
+  memset(&legacy, 0, sizeof(legacy));
+  legacy.magic = TEST_STORAGE_MAGIC;
+  legacy.version = 4U;
+  legacy.generation = 7U;
+  legacy.loadouts[0].vertical = 27;
+  legacy.loadouts[0].horizontal = -8;
+  legacy.loadouts[0].movement = 74U;
+  legacy.loadouts[0].deadzone = 14U;
+  legacy.loadouts[0].valid = 0x03U;
+  legacy.loadouts[0].rapid_fire_percent = 77U;
+  legacy.crc32 = test_crc32(&legacy, sizeof(legacy));
+  memset(blob, 0xFF, sizeof(blob));
+  memcpy(blob, &legacy, sizeof(legacy));
+  if(!lua_storage_import(blob, sizeof(blob)) ||
+     !lua_storage_commit_pending())
+  {
+    return 0;
+  }
+  lua_storage_task();
+  if(lua_storage_commit_pending() ||
+     !run_persistence_script(verify_v4, BUTTON_A, 0))
+  {
+    return 0;
+  }
+
+  legacy.version = 3U;
+  legacy.generation = 8U;
+  legacy.loadouts[0].vertical = 28;
+  legacy.loadouts[0].horizontal = -7;
+  legacy.loadouts[0].movement = 75U;
+  legacy.loadouts[0].deadzone = 15U;
+  legacy.loadouts[0].rapid_fire_percent = 0x80U | 88U;
+  legacy.crc32 = 0;
+  legacy.crc32 = test_crc32(&legacy, sizeof(legacy));
+  memset(blob, 0xFF, sizeof(blob));
+  memcpy(blob, &legacy, sizeof(legacy));
+  if(!lua_storage_import(blob, sizeof(blob)) ||
+     !lua_storage_commit_pending())
+  {
+    return 0;
+  }
+  lua_storage_task();
+  return !lua_storage_commit_pending() &&
+    run_persistence_script(verify_v3, BUTTON_A, 0);
+}
+
+int main(int argc, char *argv[])
 {
   const char *no_op = "function on_input()\nend\n";
   const char *set_a =
@@ -942,6 +1069,16 @@ int main(void)
   const char *device_up_sets_a =
     "function on_input() if device.get_val(device.BTN_UP) == 100 then "
     "controller.set_val(controller.A, 100) end end";
+
+  if(argc == 2 && strcmp(argv[1], "storage-import") == 0)
+  {
+    if(!test_legacy_config_import())
+    {
+      return 1;
+    }
+    puts("Legacy configuration import tests: PASS");
+    return 0;
+  }
 
   mock_device_buttons = 1U << LUA_DEVICE_BTN_UP;
   memset(mock_flash, 0xFF, sizeof(mock_flash));
@@ -953,7 +1090,7 @@ int main(void)
   if(!run_script(set_a, BUTTON_A) || !test_compact_macro() ||
       !test_cancel_macros() || !test_named_macros() ||
       !test_default_script() || !test_loadout_persistence() ||
-      !test_config_blob_round_trip())
+      !test_config_blob_round_trip() || !test_legacy_config_import())
   {
     return 1;
   }

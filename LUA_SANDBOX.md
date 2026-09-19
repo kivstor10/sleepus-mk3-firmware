@@ -272,8 +272,10 @@ not format media and does not support exFAT or long filenames.
 The root backup is `SLEEPUS.CFG`, a fixed 4 KiB versioned image with CRC-32.
 Export first writes and syncs `SLEEPUS.NEW`, rotates the previous file to
 `SLEEPUS.BAK`, and then promotes the new file. Import tries CFG, NEW, and BAK
-in that order, validates the complete image and all loadout ranges, and waits
-for the A/B flash commit to verify before reporting completion.
+in that order. It accepts the current storage format plus the supported v3 and
+v4 legacy formats, migrates a valid legacy image to the current format, and
+waits for the A/B flash commit to verify before reporting completion. Corrupt
+or unsupported images are rejected without modifying the active settings.
 
 After every completed or failed file operation, the host is reinitialized for
 the Xbox controller class. Remove the USB stick and reconnect the controller;

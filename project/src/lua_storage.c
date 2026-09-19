@@ -201,20 +201,55 @@ static uint8_t legacy_image_valid(storage_legacy_image_t *image,
   return actual == expected;
 }
 
-static uint8_t read_slot(uint8_t slot, storage_image_t *image)
+static uint8_t decode_storage_image(const void *data, size_t length,
+                                    storage_image_t *image,
+                                    uint8_t *migrated)
 {
-  if(storage.port.flash_read == 0 ||
-     !storage.port.flash_read(slot, 0, flash_buffer.bytes,
-                              LUA_SANDBOX_STORAGE_IMAGE_BYTES))
+  storage_legacy_image_t legacy;
+  uint16_t index;
+  uint16_t legacy_version;
+  if(data == 0 || image == 0 || migrated == 0 ||
+     length != LUA_SANDBOX_STORAGE_IMAGE_BYTES)
   {
     return 0;
   }
-  memcpy(image, flash_buffer.bytes, sizeof(*image));
-  return image_valid(image);
+  memcpy(image, data, sizeof(*image));
+  if(image_valid(image))
+  {
+    *migrated = 0;
+    return 1;
+  }
+  memcpy(&legacy, data, sizeof(legacy));
+  legacy_version = legacy.version;
+  if((legacy_version != STORAGE_LEGACY_VERSION &&
+      legacy_version != STORAGE_OLDER_VERSION) ||
+     !legacy_image_valid(&legacy, legacy_version))
+  {
+    return 0;
+  }
+  memset(image, 0, sizeof(*image));
+  image->magic = legacy.magic;
+  image->version = STORAGE_VERSION;
+  image->entry_count = legacy.entry_count;
+  image->generation = legacy.generation;
+  memcpy(image->loadouts, legacy.loadouts, sizeof(legacy.loadouts));
+  memcpy(image->entries, legacy.entries, sizeof(image->entries));
+  for(index = 0; index < STORAGE_LEGACY_LOADOUT_COUNT; index++)
+  {
+    storage_loadout_t *loadout = &image->loadouts[index];
+    if(legacy_version == STORAGE_OLDER_VERSION &&
+       (loadout->rapid_fire_percent & LOADOUT_LEGACY_RAPID_FIRE) != 0U)
+    {
+      loadout->valid |= LOADOUT_RAPID_FIRE;
+    }
+    loadout->rapid_fire_percent &= LOADOUT_PERCENT_MASK;
+  }
+  *migrated = 1;
+  return 1;
 }
 
-static uint8_t read_legacy_slot(uint8_t slot, storage_legacy_image_t *image,
-                                uint16_t version)
+static uint8_t read_slot(uint8_t slot, storage_image_t *image,
+                         uint8_t *migrated)
 {
   if(storage.port.flash_read == 0 ||
      !storage.port.flash_read(slot, 0, flash_buffer.bytes,
@@ -222,8 +257,8 @@ static uint8_t read_legacy_slot(uint8_t slot, storage_legacy_image_t *image,
   {
     return 0;
   }
-  memcpy(image, flash_buffer.bytes, sizeof(*image));
-  return legacy_image_valid(image, version);
+  return decode_storage_image(flash_buffer.bytes, sizeof(flash_buffer.bytes),
+                              image, migrated);
 }
 
 static storage_entry_t *find_entry(const char *key)
@@ -492,75 +527,36 @@ void lua_storage_init(const lua_sandbox_port_t *port)
 {
   uint8_t valid_a;
   uint8_t valid_b;
-  uint16_t index;
+  uint8_t migrated_a;
+  uint8_t migrated_b;
 
   memset(&storage, 0, sizeof(storage));
   storage.port = *port;
-  valid_a = read_slot(0, &storage_scratch[0]);
-  valid_b = read_slot(1, &storage_scratch[1]);
+  valid_a = read_slot(0, &storage_scratch[0], &migrated_a);
+  valid_b = read_slot(1, &storage_scratch[1], &migrated_b);
   if(valid_a && (!valid_b || (int32_t)(storage_scratch[0].generation -
                                        storage_scratch[1].generation) > 0))
   {
     storage.image = storage_scratch[0];
     storage.active_slot = 0;
     storage.loaded = 1;
+    storage.dirty = migrated_a;
+    storage.commit_requested = migrated_a;
   }
   else if(valid_b)
   {
     storage.image = storage_scratch[1];
     storage.active_slot = 1;
     storage.loaded = 1;
+    storage.dirty = migrated_b;
+    storage.commit_requested = migrated_b;
   }
   else
   {
-    storage_legacy_image_t *legacy;
-    uint16_t legacy_version = STORAGE_LEGACY_VERSION;
-    valid_a = read_legacy_slot(0, &legacy_storage_scratch[0], legacy_version);
-    valid_b = read_legacy_slot(1, &legacy_storage_scratch[1], legacy_version);
-    if(!valid_a && !valid_b)
-    {
-      legacy_version = STORAGE_OLDER_VERSION;
-      valid_a = read_legacy_slot(0, &legacy_storage_scratch[0], legacy_version);
-      valid_b = read_legacy_slot(1, &legacy_storage_scratch[1], legacy_version);
-    }
-    if(valid_a || valid_b)
-    {
-      legacy = valid_a && (!valid_b ||
-        (int32_t)(legacy_storage_scratch[0].generation -
-                  legacy_storage_scratch[1].generation) > 0) ?
-        &legacy_storage_scratch[0] : &legacy_storage_scratch[1];
-      memset(&storage.image, 0, sizeof(storage.image));
-      storage.image.magic = legacy->magic;
-      storage.image.entry_count = legacy->entry_count;
-      storage.image.generation = legacy->generation;
-      memcpy(storage.image.loadouts, legacy->loadouts,
-             sizeof(legacy->loadouts));
-            memcpy(storage.image.entries, legacy->entries,
-              sizeof(storage.image.entries));
-      storage.active_slot = valid_a && (!valid_b ||
-        (int32_t)(legacy_storage_scratch[0].generation -
-                  legacy_storage_scratch[1].generation) > 0) ? 0 : 1;
-      storage.image.version = STORAGE_VERSION;
-      for(index = 0; index < STORAGE_LEGACY_LOADOUT_COUNT; index++)
-      {
-        storage_loadout_t *loadout = &storage.image.loadouts[index];
-        if(legacy_version == STORAGE_OLDER_VERSION &&
-           (loadout->rapid_fire_percent & LOADOUT_LEGACY_RAPID_FIRE) != 0U)
-        {
-          loadout->valid |= LOADOUT_RAPID_FIRE;
-        }
-        loadout->rapid_fire_percent &= LOADOUT_PERCENT_MASK;
-      }
-      storage.dirty = 1;
-      storage.commit_requested = 1;
-    }
-    else
-    {
-      memset(&storage.image, 0, sizeof(storage.image));
-      storage.image.magic = STORAGE_MAGIC;
-      storage.image.version = STORAGE_VERSION;
-      storage.active_slot = 1;
-    }
+    memset(&storage.image, 0, sizeof(storage.image));
+    storage.image.magic = STORAGE_MAGIC;
+    storage.image.version = STORAGE_VERSION;
+    storage.active_slot = 1;
     storage.loaded = 1;
   }
 }
@@ -568,6 +564,7 @@ void lua_storage_init(const lua_sandbox_port_t *port)
 void lua_storage_task(void)
 {
   uint8_t next_slot;
+  uint8_t migrated;
   uint32_t next_generation;
   if(!storage.loaded || !storage.dirty || !storage.commit_requested ||
      storage.port.flash_erase == 0 || storage.port.flash_program == 0 ||
@@ -586,7 +583,7 @@ void lua_storage_task(void)
   if(storage.port.flash_erase(next_slot) &&
      storage.port.flash_program(next_slot, 0, flash_buffer.bytes,
                         sizeof(flash_buffer.bytes)) &&
-      read_slot(next_slot, &storage_scratch[0]) &&
+      read_slot(next_slot, &storage_scratch[0], &migrated) &&
       storage_scratch[0].generation == next_generation)
   {
     storage.active_slot = next_slot;
@@ -620,13 +617,9 @@ uint8_t lua_storage_import(const void *data, size_t length)
 {
   storage_image_t image;
   uint32_t generation;
-    if(!storage.loaded || data == 0 ||
-      length != LUA_SANDBOX_STORAGE_IMAGE_BYTES)
-  {
-    return 0;
-  }
-  memcpy(&image, data, sizeof(image));
-  if(!image_valid(&image))
+  uint8_t migrated;
+  if(!storage.loaded ||
+     !decode_storage_image(data, length, &image, &migrated))
   {
     return 0;
   }
