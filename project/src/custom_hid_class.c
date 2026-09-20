@@ -522,8 +522,13 @@ static usb_sts_type class_event_handler(void *udev, usbd_event_type event)
       xbox_output_length = 0;
       xbox_audio_head = 0;
       xbox_audio_tail = 0;
+      xbox_audio_output_faults = 0;
       xbox_microphone_head = 0;
       xbox_microphone_tail = 0;
+      pcshid->audio_send_state = 0;
+      pcshid->alt_setting[0] = 0;
+      pcshid->alt_setting[1] = 0;
+      pcshid->alt_setting[2] = 0;
 
       /* ...user code... */
 

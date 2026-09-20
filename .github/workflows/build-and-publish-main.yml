@@ -1,0 +1,92 @@
+name: Build and publish main firmware
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-and-publish-main.yml'
+      - 'libraries/**'
+      - 'middlewares/**'
+      - 'project/**'
+      - 'scripts/**'
+      - 'tools/build-lua-firmware.ps1'
+      - 'tools/package-lua.js'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-main-firmware
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    runs-on: windows-latest
+    steps:
+      - name: Check out firmware source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PlatformIO ARM toolchain
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade platformio
+          pio pkg install --global --tool "platformio/toolchain-gccarmnoneeabi-teensy"
+
+      - name: Build firmware
+        shell: pwsh
+        run: |
+          .\tools\build-lua-firmware.ps1 -Output 'build\Sleepus-MK3-Auto.hex'
+
+      - name: Build updater manifest
+        shell: pwsh
+        run: |
+          $source = 'build\Sleepus-MK3-Auto.bin'
+          $artifactDirectory = 'artifact'
+          New-Item -ItemType Directory -Force $artifactDirectory | Out-Null
+          Copy-Item $source "$artifactDirectory\Sleepus-MK3.bin" -Force
+          $hash = (Get-FileHash "$artifactDirectory\Sleepus-MK3.bin" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $version = "main-$($env:GITHUB_SHA.Substring(0, 12))"
+          $manifest = [ordered]@{
+            version = $version
+            file = 'Sleepus-MK3.bin'
+            size = (Get-Item "$artifactDirectory\Sleepus-MK3.bin").Length
+            sha256 = $hash
+            publishedAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+          } | ConvertTo-Json
+          Set-Content -Path "$artifactDirectory\manifest.json" -Value $manifest -NoNewline
+          "FIRMWARE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Check out public updater
+        uses: actions/checkout@v4
+        with:
+          repository: kivstor10/sleepus-mk3
+          ssh-key: ${{ secrets.UPDATER_DEPLOY_KEY }}
+          path: updater
+
+      - name: Publish firmware to updater
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force 'updater\firmware' | Out-Null
+          Copy-Item 'artifact\Sleepus-MK3.bin','artifact\manifest.json' 'updater\firmware' -Force
+          Set-Location updater
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add firmware/Sleepus-MK3.bin firmware/manifest.json
+          git diff --cached --quiet
+          if($LASTEXITCODE -eq 0)
+          {
+            exit 0
+          }
+          git commit -m "Publish firmware $env:FIRMWARE_VERSION"
+          git push

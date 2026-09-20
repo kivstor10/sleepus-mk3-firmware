@@ -658,6 +658,9 @@ static void xbox_audio_process(usbh_core_type *uhost, usbh_hid_type *phid)
         if(audio_output_error_count >= 3)
         {
           audio_output_fault_flags |= 0x04;
+          audio_output_error_count = 0;
+          audio_output_tail = (uint8_t)((audio_output_tail + 1) %
+                                        XBOX_AUDIO_OUTPUT_QUEUE_SIZE);
         }
       }
       else if(status == URB_DONE)
