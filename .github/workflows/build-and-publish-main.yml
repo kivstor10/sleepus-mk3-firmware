@@ -59,10 +59,10 @@ jobs:
           $artifactDirectory = 'artifact'
           New-Item -ItemType Directory -Force $artifactDirectory | Out-Null
           $variants = [ordered]@{
-            both = @{ file = 'Sleepus-MK3-Both.bin'; label = 'R6 + BF6'; source = 'build\Sleepus-MK3-Both.bin' }
+            both = @{ file = 'Sleepus-MK3-Both.bin'; label = 'Combined R6 and BF6'; source = 'build\Sleepus-MK3-Both.bin' }
             r6 = @{ file = 'Sleepus-MK3-R6.bin'; label = 'R6 only'; source = 'build\Sleepus-MK3-R6.bin' }
             bf6 = @{ file = 'Sleepus-MK3-BF6.bin'; label = 'BF6 only'; source = 'build\Sleepus-MK3-BF6.bin' }
-            bare = @{ file = 'Sleepus-MK3-Bare.bin'; label = 'Bare firmware'; source = 'build\Sleepus-MK3-Bare.bin' }
+            bare = @{ file = 'Sleepus-MK3-Bare.bin'; label = 'Base firmware'; source = 'build\Sleepus-MK3-Bare.bin' }
           }
           foreach($variant in $variants.Values)
           {
@@ -73,7 +73,7 @@ jobs:
           }
           New-Item -ItemType Directory -Force "$artifactDirectory\packs" | Out-Null
           Copy-Item 'build\Sleepus-MK3-*.sleepus-pack' "$artifactDirectory\packs" -Force
-          Copy-Item "$artifactDirectory\Sleepus-MK3-Both.bin" "$artifactDirectory\Sleepus-MK3.bin" -Force
+          Copy-Item "$artifactDirectory\Sleepus-MK3-Bare.bin" "$artifactDirectory\Sleepus-MK3.bin" -Force
           $latestTag = git tag --list 'v[0-9]*' --sort=-v:refname |
             Select-Object -First 1
           if($latestTag -notmatch '^v(\d+)\.(\d+)\.(\d+)$')
@@ -83,10 +83,10 @@ jobs:
           $version = "v$($Matches[1]).$($Matches[2]).$([int]$Matches[3] + 1)"
           $manifest = [ordered]@{
             version = $version
-            file = 'Sleepus-MK3-Both.bin'
-            size = $variants.both.size
-            sha256 = $variants.both.sha256
-            defaultVariant = 'both'
+            file = 'Sleepus-MK3-Bare.bin'
+            size = $variants.bare.size
+            sha256 = $variants.bare.sha256
+            defaultVariant = 'bare'
             variants = $variants
             publishedAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
           } | ConvertTo-Json -Depth 4
