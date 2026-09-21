@@ -1,3 +1,6 @@
+local r6_enabled = R6_ENABLED ~= false
+local bf6_enabled = BF6_ENABLED ~= false
+
 local attackers = {
 	"SLEDGE", "THATCHER", "ASH", "THERMITE", "TWITCH", "MONTAGNE",
 	"GLAZ", "FUZE", "BLITZ", "IQ", "BUCK", "BLACKBEARD", "CAPITAO",
@@ -21,6 +24,22 @@ local fields = {
 	"DEAD ZONE", "RAPID FIRE", "FIRST BULLET", "FIRST BULLET %",
 	"TEA BAG", "TEA MS", "SHAIKO LEAN", "READY"
 }
+
+local bf6_fields = {
+	"WEAPON", "VERTICAL", "HORIZONTAL", "ACTIVE", "WIDTH", "HEIGHT",
+	"SPEED", "RAPID FIRE", "HIP RAPID", "SAVE & START"
+}
+
+local bf6_rt_threshold = 9
+
+local bf6_loadout_names = {
+	"ASSAULT", "ENGINEER", "SUPPORT", "RECON", "WILDCARD"
+}
+
+local game_options = {}
+if r6_enabled then game_options[#game_options + 1] = {level = 1, label = "R6"} end
+if bf6_enabled then game_options[#game_options + 1] = {level = 2, label = "BF6"} end
+game_options[#game_options + 1] = {level = 3, label = "CONFIG"}
 
 local quick_select_buttons = {
 	{controller.A, "qs_a", "A"}, {controller.B, "qs_b", "B"},
@@ -104,6 +123,16 @@ local state = {
 	down_tap_release = false,
 	previous_rt = false,
 	first_bullet_until = 0,
+	bf6_configuring = true,
+	bf6_selecting_loadout = true,
+	bf6_loadout = 1,
+	bf6_weapon = 1,
+	bf6_field = 1,
+	bf6_field_editing = false,
+	bf6_angle = 0,
+	bf6_last_aim_ms = 0,
+	bf6_previous_y = false,
+	bf6_settings_dirty = false,
 	display_ready = false
 }
 
@@ -208,6 +237,80 @@ end
 local function on_off(value)
 	if value then return "ON" end
 	return "OFF"
+end
+
+local bf6_profiles = {}
+
+local function bf6_default_profile()
+	return {
+		active = false, width = 10, height = 10, speed = 120,
+		vertical = 0, horizontal = 0, rapid_fire = false, hip_rapid = false
+	}
+end
+
+local function bf6_storage_key(loadout)
+	return "bf6_loadout_" .. loadout
+end
+
+local function decode_bf6_profile(record)
+	local values = {}
+	for value in string.gmatch(record or "", "[^,]+") do
+		values[#values + 1] = tonumber(value)
+	end
+	if #values ~= 7 and #values ~= 8 then return nil end
+	for index = 1, #values do
+		if values[index] == nil then return nil end
+	end
+	return {
+		active = values[1] ~= 0,
+		width = clamp(values[2], 1, 50),
+		height = clamp(values[3], 1, 50),
+		speed = clamp(values[4], 10, 720),
+		vertical = clamp(values[5], 0, 99),
+		horizontal = clamp(values[6], -30, 30),
+		rapid_fire = values[7] ~= 0,
+		hip_rapid = values[8] == 1
+	}
+end
+
+local function encode_bf6_profile(profile)
+	return (profile.active and "1" or "0") .. "," .. profile.width .. "," ..
+		profile.height .. "," .. profile.speed .. "," .. profile.vertical .. "," ..
+		profile.horizontal .. "," .. (profile.rapid_fire and "1" or "0") .. "," ..
+		(profile.hip_rapid and "1" or "0")
+end
+
+local function load_bf6_loadout(loadout)
+	if bf6_profiles[loadout] then return bf6_profiles[loadout] end
+	local profiles = {bf6_default_profile(), bf6_default_profile()}
+	local saved = storage.read(bf6_storage_key(loadout))
+	if type(saved) == "string" then
+		local primary, secondary = saved:match("^([^;]+);([^;]+)$")
+		profiles[1] = decode_bf6_profile(primary) or profiles[1]
+		profiles[2] = decode_bf6_profile(secondary) or profiles[2]
+	end
+	bf6_profiles[loadout] = profiles
+	return profiles
+end
+
+local function bf6_profile()
+	return load_bf6_loadout(state.bf6_loadout)[state.bf6_weapon]
+end
+
+local function save_bf6_settings()
+	local changed = false
+	for loadout = 1, #bf6_loadout_names do
+		if bf6_profiles[loadout] then
+			local profiles = bf6_profiles[loadout]
+			local record = encode_bf6_profile(profiles[1]) .. ";" ..
+				encode_bf6_profile(profiles[2])
+			if storage.read(bf6_storage_key(loadout)) ~= record then
+				storage.write(bf6_storage_key(loadout), record)
+				changed = true
+			end
+		end
+	end
+	if changed then storage.commit() end
 end
 
 local function device_action(id, index, now)
@@ -390,15 +493,162 @@ local function draw_operator_config()
 	end
 end
 
-local function draw_ui()
+local draw_ui
+
+local function draw_bf6_loadout_selector()
+	local first = math.floor((state.bf6_loadout - 1) / 4) * 4 + 1
+	for index = first, math.min(first + 3, #bf6_loadout_names) do
+		local text = index == state.bf6_loadout and
+			">" .. bf6_loadout_names[index] .. "<" or bf6_loadout_names[index]
+		local x = math.floor((128 - #text * 6) / 2)
+		display.draw_text(math.max(0, x), (index - first) * 8, text)
+	end
+end
+
+local function bf6_field_visible(field)
+	return field < 5 or bf6_profile().active or field > 7
+end
+
+local function draw_bf6_config()
+	local profile = bf6_profile()
+	local visible = {}
+	for index = 1, #bf6_fields do
+		if bf6_field_visible(index) then visible[#visible + 1] = index end
+	end
+	local selected = 1
+	for index, field in ipairs(visible) do
+		if field == state.bf6_field then selected = index break end
+	end
+	local first = math.floor((selected - 1) / 3) * 3 + 1
+	display.draw_text(0, 0, bf6_loadout_names[state.bf6_loadout])
+	for row = 0, 2 do
+		local field = visible[first + row]
+		if field then
+			local label = bf6_fields[field]
+			local value
+			if field == 1 then
+				value = state.bf6_weapon == 1 and "PRIMARY" or "SECONDARY"
+			elseif field == 2 then
+				value = tostring(profile.vertical)
+			elseif field == 3 then
+				value = tostring(profile.horizontal)
+			elseif field == 4 then
+				value = on_off(profile.active)
+			elseif field == 5 then
+				value = tostring(profile.width)
+			elseif field == 6 then
+				value = tostring(profile.height)
+			elseif field == 7 then
+				value = tostring(profile.speed) .. "D/S"
+			elseif field == 8 then
+				value = on_off(profile.rapid_fire)
+			elseif field == 9 then
+				value = on_off(profile.hip_rapid)
+			else
+				value = ""
+			end
+			if field == state.bf6_field then
+				if state.bf6_field_editing then
+					value = ">" .. value .. "<"
+				else
+					label = label .. "<"
+					display.draw_text(0, (row + 1) * 8, ">")
+				end
+			end
+			display.draw_text(6, (row + 1) * 8, label)
+			if value ~= "" then
+				display.draw_text(math.max(0, 128 - #value * 6),
+					(row + 1) * 8, value)
+			end
+		end
+	end
+end
+
+local function draw_bf6_gameplay()
+	local profile = bf6_profile()
+	display.draw_text(0, 0, "BF6 ACTIVE")
+	display.draw_text(0, 8, bf6_loadout_names[state.bf6_loadout] .. " " ..
+		(state.bf6_weapon == 1 and "PRIMARY" or "SECONDARY"))
+	display.draw_text(0, 16, "V" .. profile.vertical .. " H" ..
+		profile.horizontal .. " AIM " .. on_off(profile.active))
+	display.draw_text(0, 24, "UP: MENU")
+end
+
+local function edit_bf6_loadout(direction)
+	state.bf6_loadout = state.bf6_loadout + direction
+	if state.bf6_loadout < 1 then state.bf6_loadout = #bf6_loadout_names end
+	if state.bf6_loadout > #bf6_loadout_names then state.bf6_loadout = 1 end
+	state.bf6_weapon = 1
+	state.bf6_field = 1
+	state.bf6_field_editing = false
+end
+
+local function bf6_field_repeats()
+	return state.bf6_field == 2 or state.bf6_field == 3 or
+		(state.bf6_field >= 5 and state.bf6_field <= 7)
+end
+
+local function move_bf6_field(direction)
+	local field = state.bf6_field
+	repeat
+		field = field + direction
+	until field < 1 or field > #bf6_fields or bf6_field_visible(field)
+	state.bf6_field = clamp(field, 1, #bf6_fields)
+end
+
+local function edit_bf6_field(direction)
+	local profile = bf6_profile()
+	if state.bf6_field == 1 then
+		state.bf6_weapon = state.bf6_weapon == 1 and 2 or 1
+	elseif state.bf6_field == 2 then
+		profile.vertical = clamp(profile.vertical + direction, 0, 99)
+	elseif state.bf6_field == 3 then
+		profile.horizontal = clamp(profile.horizontal + direction, -30, 30)
+	elseif state.bf6_field == 4 then
+		profile.active = not profile.active
+	elseif state.bf6_field == 5 then
+		profile.width = clamp(profile.width + direction, 1, 50)
+	elseif state.bf6_field == 6 then
+		profile.height = clamp(profile.height + direction, 1, 50)
+	elseif state.bf6_field == 7 then
+		profile.speed = clamp(profile.speed + direction * 10, 10, 720)
+	elseif state.bf6_field == 8 then
+		profile.rapid_fire = not profile.rapid_fire
+	elseif state.bf6_field == 9 then
+		profile.hip_rapid = not profile.hip_rapid
+	end
+	state.bf6_settings_dirty = true
+end
+
+local function start_bf6()
+	if state.bf6_settings_dirty then
+		save_bf6_settings()
+		state.bf6_settings_dirty = false
+	end
+	state.bf6_configuring = false
+	state.bf6_selecting_loadout = false
+	state.bf6_field_editing = false
+	controller.cancel_macros()
+	draw_ui()
+end
+
+draw_ui = function()
 	led.set(state.menu_level == 1 and state.weapon == 1)
 	display.clear()
 	if state.menu_level == 0 then
-		draw_simple_list("SELECT GAME", {"R6", "RUST", "CONFIG"}, state.game, true)
+		local labels = {}
+		for index, option in ipairs(game_options) do labels[index] = option.label end
+		draw_simple_list("SELECT GAME", labels, state.game, true)
 	elseif state.menu_level == 2 then
-		display.draw_text(0, 0, "RUST")
-		display.draw_text(0, 8, "COMING SOON")
-		display.draw_text(0, 16, "LEFT: BACK")
+		if state.bf6_configuring then
+			if state.bf6_selecting_loadout then
+				draw_bf6_loadout_selector()
+			else
+				draw_bf6_config()
+			end
+		else
+			draw_bf6_gameplay()
+		end
 	elseif state.menu_level == 3 then
 		if state.config_status == 0 then
 			draw_config_menu()
@@ -679,11 +929,11 @@ local function update_menu()
 	if state.menu_level == 0 then
 		if decrease or increase then
 			state.game = state.game + (increase and 1 or -1)
-			if state.game < 1 then state.game = 3 end
-			if state.game > 3 then state.game = 1 end
+			if state.game < 1 then state.game = #game_options end
+			if state.game > #game_options then state.game = 1 end
 			draw_ui()
 		elseif next then
-			state.menu_level = state.game
+			state.menu_level = game_options[state.game].level
 			state.config_status = 0
 			draw_ui()
 		end
@@ -691,8 +941,70 @@ local function update_menu()
 	end
 
 	if state.menu_level == 2 then
-		if previous then
-			state.menu_level = 0
+		local start_chord =
+			(device.get_val(device.BTN_UP) == 100 and
+			 device.get_val(device.BTN_DOWN) == 100) or
+			(device.get_val(device.BTN_SELECT) == 100 and
+			 device.get_val(device.BTN_BACK) == 100)
+		if not state.bf6_configuring then
+			if previous or next then
+				state.bf6_configuring = true
+				state.bf6_selecting_loadout = true
+				state.bf6_field = 1
+				state.bf6_field_editing = false
+				draw_ui()
+			end
+			return
+		end
+		if state.bf6_selecting_loadout then
+			if increase then
+				edit_bf6_loadout(1)
+				draw_ui()
+			elseif decrease then
+				edit_bf6_loadout(-1)
+				draw_ui()
+			elseif next then
+				state.bf6_selecting_loadout = false
+				state.bf6_field = 1
+				state.bf6_field_editing = false
+				draw_ui()
+			elseif previous then
+				state.menu_level = 0
+				draw_ui()
+			end
+			return
+		end
+		if start_chord then
+			start_bf6()
+		elseif state.bf6_field_editing then
+			if decrease and (not decrease_repeat or bf6_field_repeats()) then
+				edit_bf6_field(1)
+				draw_ui()
+			elseif increase and (not increase_repeat or bf6_field_repeats()) then
+				edit_bf6_field(-1)
+				draw_ui()
+			elseif next or previous then
+				state.bf6_field_editing = false
+				draw_ui()
+			end
+		elseif decrease or increase then
+			move_bf6_field(increase and 1 or -1)
+			draw_ui()
+		elseif next then
+			if state.bf6_field == #bf6_fields then
+				start_bf6()
+			elseif state.bf6_field == 1 or state.bf6_field == 4 or
+				state.bf6_field == 8 or state.bf6_field == 9 then
+				edit_bf6_field(1)
+				draw_ui()
+			else
+				state.bf6_field_editing = true
+				draw_ui()
+			end
+		elseif previous then
+			state.bf6_selecting_loadout = true
+			state.bf6_field = 1
+			state.bf6_field_editing = false
 			draw_ui()
 		end
 		return
@@ -861,6 +1173,9 @@ end
 
 local function offset_axis(id, amount)
 	local current = controller.get_val(id)
+	if state.sab_enabled and amount ~= 0 then
+		amount = amount + math.random(-1, 1)
+	end
 	local value = amount * (100 - math.abs(current)) / 100 + current
 	controller.set_val(id, round(clamp(value, -100, 100)))
 end
@@ -877,15 +1192,13 @@ local function apply_recoil()
 
 	local x = controller.get_val(controller.RX)
 	local y = controller.get_val(controller.RY)
-	local sab_x = state.sab_enabled and math.random(-1, 1) or 0
-	local sab_y = state.sab_enabled and math.random(-1, 1) or 0
 	local magnitude = math.sqrt(x * x + y * y)
 	if magnitude <= state.deadzone then
-		if state.horizontal ~= 0 or sab_x ~= 0 then
-			offset_axis(controller.RX, state.horizontal + sab_x)
+		if state.horizontal ~= 0 then
+			offset_axis(controller.RX, state.horizontal)
 		end
-		if vertical_recoil ~= 0 or sab_y ~= 0 then
-			offset_axis(controller.RY, vertical_recoil + sab_y)
+		if vertical_recoil ~= 0 then
+			offset_axis(controller.RY, vertical_recoil)
 		end
 		return
 	end
@@ -901,11 +1214,11 @@ local function apply_recoil()
 	end
 	vertical_scale = vertical_scale *
 		(1 - (math.abs(x) / 100) ^ 4)
-	if state.horizontal ~= 0 or sab_x ~= 0 then
-		offset_axis(controller.RX, state.horizontal * scale + sab_x)
+	if state.horizontal ~= 0 then
+		offset_axis(controller.RX, state.horizontal * scale)
 	end
-	if vertical_recoil ~= 0 or sab_y ~= 0 then
-		offset_axis(controller.RY, vertical_recoil * vertical_scale + sab_y)
+	if vertical_recoil ~= 0 then
+		offset_axis(controller.RY, vertical_recoil * vertical_scale)
 	end
 end
 
@@ -917,6 +1230,54 @@ local function run_macro(name, enabled, held, steps)
 	elseif controller.macro_running(name) then
 		controller.stop_macro(name)
 	end
+end
+
+local function bf6_y_tapped()
+	local down = controller.get_val(controller.Y) > 0
+	local tapped = not down and state.bf6_previous_y
+	state.bf6_previous_y = down
+	return tapped
+end
+
+local function apply_bf6_sticky_aim()
+	local profile = bf6_profile()
+	local lt_held = controller.get_val(controller.LT) > 0
+	local rt_held = controller.get_val(controller.RT) >= bf6_rt_threshold
+	local x_offset = 0
+	local y_offset = 0
+	if profile.active and lt_held then
+		local now = controller.get_millis()
+		local elapsed = state.bf6_last_aim_ms == 0 and 10 or
+			clamp(now - state.bf6_last_aim_ms, 0, 100)
+		state.bf6_last_aim_ms = now
+		state.bf6_angle = (state.bf6_angle + profile.speed * elapsed / 1000) % 360
+		local radians = state.bf6_angle * math.pi / 180
+		x_offset = math.cos(radians) * profile.width
+		y_offset = math.sin(radians) * profile.height
+	else
+		state.bf6_last_aim_ms = 0
+	end
+	if lt_held and rt_held then
+		x_offset = x_offset + profile.horizontal
+		y_offset = y_offset + profile.vertical
+	end
+	if x_offset ~= 0 then offset_axis(controller.RX, x_offset) end
+	if y_offset ~= 0 then offset_axis(controller.RY, y_offset) end
+end
+
+local function run_bf6_gameplay()
+	if bf6_y_tapped() then
+		state.bf6_weapon = state.bf6_weapon == 1 and 2 or 1
+		state.bf6_field = 1
+		state.bf6_field_editing = false
+		draw_ui()
+	end
+	local profile = bf6_profile()
+	run_macro("bf6_rapid_fire", profile.rapid_fire,
+		controller.get_val(controller.RT) >= bf6_rt_threshold and
+		(profile.hip_rapid or controller.get_val(controller.LT) > 0),
+		rapid_fire_macro)
+	apply_bf6_sticky_aim()
 end
 
 local function run_gameplay()
@@ -985,6 +1346,8 @@ function on_input()
 	update_menu()
 	if state.menu_level == 1 and not state.quick_consumed then
 		run_gameplay()
+	elseif state.menu_level == 2 then
+		run_bf6_gameplay()
 	end
 end
 

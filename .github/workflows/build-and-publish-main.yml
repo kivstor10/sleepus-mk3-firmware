@@ -48,16 +48,30 @@ jobs:
       - name: Build firmware
         shell: pwsh
         run: |
-          .\tools\build-lua-firmware.ps1 -Output 'build\Sleepus-MK3-Auto.hex'
+          .\tools\build-lua-firmware.ps1 -Variant Both -Output 'build\Sleepus-MK3-Both.hex'
+          .\tools\build-lua-firmware.ps1 -Variant R6 -Output 'build\Sleepus-MK3-R6.hex'
+          .\tools\build-lua-firmware.ps1 -Variant BF6 -Output 'build\Sleepus-MK3-BF6.hex'
+          .\tools\build-lua-firmware.ps1 -Variant Bare -Output 'build\Sleepus-MK3-Bare.hex'
 
       - name: Build updater manifest
         shell: pwsh
         run: |
-          $source = 'build\Sleepus-MK3-Auto.bin'
           $artifactDirectory = 'artifact'
           New-Item -ItemType Directory -Force $artifactDirectory | Out-Null
-          Copy-Item $source "$artifactDirectory\Sleepus-MK3.bin" -Force
-          $hash = (Get-FileHash "$artifactDirectory\Sleepus-MK3.bin" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $variants = [ordered]@{
+            both = @{ file = 'Sleepus-MK3-Both.bin'; label = 'R6 + BF6'; source = 'build\Sleepus-MK3-Both.bin' }
+            r6 = @{ file = 'Sleepus-MK3-R6.bin'; label = 'R6 only'; source = 'build\Sleepus-MK3-R6.bin' }
+            bf6 = @{ file = 'Sleepus-MK3-BF6.bin'; label = 'BF6 only'; source = 'build\Sleepus-MK3-BF6.bin' }
+            bare = @{ file = 'Sleepus-MK3-Bare.bin'; label = 'Bare firmware'; source = 'build\Sleepus-MK3-Bare.bin' }
+          }
+          foreach($variant in $variants.Values)
+          {
+            Copy-Item $variant.source "$artifactDirectory\$($variant.file)" -Force
+            $variant.Remove('source')
+            $variant.size = (Get-Item "$artifactDirectory\$($variant.file)").Length
+            $variant.sha256 = (Get-FileHash "$artifactDirectory\$($variant.file)" -Algorithm SHA256).Hash.ToLowerInvariant()
+          }
+          Copy-Item "$artifactDirectory\Sleepus-MK3-Both.bin" "$artifactDirectory\Sleepus-MK3.bin" -Force
           $latestTag = git tag --list 'v[0-9]*' --sort=-v:refname |
             Select-Object -First 1
           if($latestTag -notmatch '^v(\d+)\.(\d+)\.(\d+)$')
@@ -67,11 +81,13 @@ jobs:
           $version = "v$($Matches[1]).$($Matches[2]).$([int]$Matches[3] + 1)"
           $manifest = [ordered]@{
             version = $version
-            file = 'Sleepus-MK3.bin'
-            size = (Get-Item "$artifactDirectory\Sleepus-MK3.bin").Length
-            sha256 = $hash
+            file = 'Sleepus-MK3-Both.bin'
+            size = $variants.both.size
+            sha256 = $variants.both.sha256
+            defaultVariant = 'both'
+            variants = $variants
             publishedAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-          } | ConvertTo-Json
+          } | ConvertTo-Json -Depth 4
           Set-Content -Path "$artifactDirectory\manifest.json" -Value $manifest -NoNewline
           "FIRMWARE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
@@ -86,11 +102,11 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force 'updater\firmware' | Out-Null
-          Copy-Item 'artifact\Sleepus-MK3.bin','artifact\manifest.json' 'updater\firmware' -Force
+          Copy-Item 'artifact\Sleepus-MK3*.bin','artifact\manifest.json' 'updater\firmware' -Force
           Set-Location updater
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add firmware/Sleepus-MK3.bin firmware/manifest.json
+          git add firmware
           git diff --cached --quiet
           if($LASTEXITCODE -eq 0)
           {

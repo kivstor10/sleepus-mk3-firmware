@@ -386,6 +386,132 @@ static uint8_t run_default_frame(controller_data_t *input,
   return lua_sandbox_run_event("on_input", budget, error, error_capacity);
 }
 
+static uint8_t test_bf6_script(void)
+{
+  static const lua_sandbox_budget_t budget = {4000U, 1U, 100U};
+  static char script[LUA_SANDBOX_MAX_SCRIPT_BYTES + 1U];
+  controller_data_t input;
+  controller_data_t output;
+  char error[128];
+  FILE *file;
+  size_t length;
+  uint32_t time_ms = 1U;
+  uint8_t field;
+
+  file = fopen("scripts/default.lua", "rb");
+  if(file == 0)
+  {
+    return 0;
+  }
+  length = fread(script, 1, sizeof(script), file);
+  fclose(file);
+  if(length == 0 || length > LUA_SANDBOX_MAX_SCRIPT_BYTES ||
+     !lua_arena_init(&test_arena, test_memory, sizeof(test_memory)) ||
+     !lua_sandbox_init(lua_arena_alloc, &test_arena, &test_port))
+  {
+    return 0;
+  }
+  if(!lua_sandbox_load(script, length, error, sizeof(error)))
+  {
+    fprintf(stderr, "BF6 script load failed: %s\n", error);
+    lua_sandbox_shutdown();
+    return 0;
+  }
+
+  memset(&input, 0, sizeof(input));
+  mock_flash_erase_count = 0;
+  mock_flash_program_count = 0;
+  if(!run_default_frame(&input, &budget, error, sizeof(error), 0, time_ms++) ||
+     !run_default_frame(&input, &budget, error, sizeof(error),
+                        1U << LUA_DEVICE_BTN_BACK, time_ms++) ||
+     !run_default_frame(&input, &budget, error, sizeof(error), 0, time_ms++) ||
+     !run_default_frame(&input, &budget, error, sizeof(error),
+                        1U << LUA_DEVICE_BTN_UP, time_ms++) ||
+    !run_default_frame(&input, &budget, error, sizeof(error), 0, time_ms++) ||
+    !run_default_frame(&input, &budget, error, sizeof(error),
+              1U << LUA_DEVICE_BTN_UP, time_ms++) ||
+    !run_default_frame(&input, &budget, error, sizeof(error), 0, time_ms++) ||
+    !run_default_frame(&input, &budget, error, sizeof(error),
+               1U << LUA_DEVICE_BTN_BACK, time_ms++) ||
+    !run_default_frame(&input, &budget, error, sizeof(error), 0, time_ms++) ||
+    !run_default_frame(&input, &budget, error, sizeof(error),
+           1U << LUA_DEVICE_BTN_BACK, time_ms++) ||
+    !run_default_frame(&input, &budget, error, sizeof(error), 0, time_ms++) ||
+        !run_default_frame(&input, &budget, error, sizeof(error),
+          1U << LUA_DEVICE_BTN_BACK, time_ms++) ||
+        !run_default_frame(&input, &budget, error, sizeof(error), 0, time_ms++) ||
+    !run_default_frame(&input, &budget, error, sizeof(error),
+               1U << LUA_DEVICE_BTN_UP, time_ms++) ||
+    !run_default_frame(&input, &budget, error, sizeof(error), 0, time_ms++))
+  {
+    fprintf(stderr, "BF6 setup failed: %s\n", error);
+    lua_sandbox_shutdown();
+    return 0;
+  }
+
+  input.lt = 1023U;
+  input.rt = 1023U;
+  if(!run_default_frame(&input, &budget, error, sizeof(error), 0, time_ms++))
+  {
+    fprintf(stderr, "BF6 unsaved gameplay frame failed: %s\n", error);
+    lua_sandbox_shutdown();
+    return 0;
+  }
+  output = input;
+  lua_sandbox_apply(&output);
+  if(output.rx == input.rx && output.ry == input.ry)
+  {
+    fprintf(stderr, "BF6 output inactive before save\n");
+    lua_sandbox_shutdown();
+    return 0;
+  }
+
+  for(field = 1U; field < 7U; field++)
+  {
+    if(!run_default_frame(&input, &budget, error, sizeof(error),
+                          1U << LUA_DEVICE_BTN_BACK, time_ms++) ||
+       !run_default_frame(&input, &budget, error, sizeof(error),
+                          0, time_ms++))
+    {
+      fprintf(stderr, "BF6 navigation failed: %s\n", error);
+      lua_sandbox_shutdown();
+      return 0;
+    }
+  }
+  if(!run_default_frame(&input, &budget, error, sizeof(error),
+                        1U << LUA_DEVICE_BTN_UP, time_ms++) ||
+     !run_default_frame(&input, &budget, error, sizeof(error), 0, time_ms++))
+  {
+    fprintf(stderr, "BF6 save failed: %s\n", error);
+    lua_sandbox_shutdown();
+    return 0;
+  }
+
+  input.lt = 1023U;
+  input.rt = 1023U;
+  if(!run_default_frame(&input, &budget, error, sizeof(error), 0, 100U))
+  {
+    fprintf(stderr, "BF6 gameplay frame failed: %s\n", error);
+    lua_sandbox_shutdown();
+    return 0;
+  }
+  output = input;
+  lua_sandbox_apply(&output);
+  if(mock_flash_erase_count != 0U || mock_flash_program_count != 0U)
+  {
+    fprintf(stderr, "BF6 saved unchanged settings\n");
+    lua_sandbox_shutdown();
+    return 0;
+  }
+  if(output.rx == input.rx && output.ry == input.ry)
+  {
+    fprintf(stderr, "BF6 output inactive: [%s] [%s]\n",
+            mock_display_lines[0], mock_display_lines[1]);
+  }
+  lua_sandbox_shutdown();
+  return output.rx != input.rx || output.ry != input.ry;
+}
+
 static uint8_t test_default_script(void)
 {
   static const lua_sandbox_budget_t budget = {4000U, 1U, 100U};
@@ -1077,6 +1203,16 @@ int main(int argc, char *argv[])
       return 1;
     }
     puts("Legacy configuration import tests: PASS");
+    return 0;
+  }
+  if(argc == 2 && strcmp(argv[1], "bf6") == 0)
+  {
+    memset(mock_flash, 0xFF, sizeof(mock_flash));
+    if(!test_bf6_script())
+    {
+      return 1;
+    }
+    puts("BF6 script test: PASS");
     return 0;
   }
 

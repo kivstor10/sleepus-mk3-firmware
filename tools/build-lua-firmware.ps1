@@ -1,6 +1,8 @@
 param(
   [string]$Script = "scripts/default.lua",
   [string]$Output = "build/Sleepus-MK3-Test.hex",
+  [ValidateSet("Both", "R6", "BF6", "Bare")]
+  [string]$Variant = "Both",
   [switch]$UsbDiagnostics,
   [switch]$UsbVerboseDiagnostics,
   [switch]$RumbleOledTrace
@@ -149,8 +151,20 @@ $scriptPath = Join-Path $root $Script
 $outputPath = Join-Path $root $Output
 $releaseBinary = [IO.Path]::ChangeExtension($outputPath, ".bin")
 $archivePath = Join-Path $root "build\lua-firmware\default.sleepus-pack"
+$packagedScriptPath = $scriptPath
+if($Variant -ne "Both")
+{
+  $r6Enabled = $Variant -eq "R6"
+  $bf6Enabled = $Variant -eq "BF6"
+  $variantScriptPath = Join-Path $temporaryDirectory "default-$Variant.lua"
+  $flags = "R6_ENABLED = $($r6Enabled.ToString().ToLowerInvariant())`n" +
+    "BF6_ENABLED = $($bf6Enabled.ToString().ToLowerInvariant())`n"
+  [IO.File]::WriteAllText($variantScriptPath,
+    $flags + [IO.File]::ReadAllText($scriptPath))
+  $packagedScriptPath = $variantScriptPath
+}
 & node (Join-Path $root "tools\package-lua.js") --firmware $firmwareHex `
-  --script $scriptPath --archive $archivePath --output $outputPath
+  --script $packagedScriptPath --archive $archivePath --output $outputPath
 if($LASTEXITCODE -ne 0)
 {
   throw "Lua archive packaging failed"
