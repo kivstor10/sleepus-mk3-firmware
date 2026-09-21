@@ -3,6 +3,7 @@ param(
   [string]$Output = "build/Sleepus-MK3-Test.hex",
   [ValidateSet("Both", "R6", "BF6", "Bare")]
   [string]$Variant = "Both",
+  [string]$ArchiveOutput,
   [switch]$UsbDiagnostics,
   [switch]$UsbVerboseDiagnostics,
   [switch]$RumbleOledTrace
@@ -168,6 +169,10 @@ if($Variant -ne "Both")
 if($LASTEXITCODE -ne 0)
 {
   throw "Lua archive packaging failed"
+}
+if($ArchiveOutput)
+{
+  Copy-Item $archivePath (Join-Path $root $ArchiveOutput) -Force
 }
 
 & $objcopy -I ihex -O binary --gap-fill 0xff $outputPath $releaseBinary
